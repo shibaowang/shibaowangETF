@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240" role="img" aria-label="方案F 高级徽章型 ETF Logo">
+  <defs>
+    <linearGradient id="f-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#081B29"/>
+      <stop offset="1" stop-color="#061522"/>
+    </linearGradient>
+    <linearGradient id="f-red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF5A62"/>
+      <stop offset="0.45" stop-color="#E62935"/>
+      <stop offset="1" stop-color="#8E1622"/>
+    </linearGradient>
+    <linearGradient id="f-metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123E5A"/>
+      <stop offset="1" stop-color="#061522"/>
+    </linearGradient>
+    <filter id="f-shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000000" flood-opacity="0.52"/>
+    </filter>
+    <g id="f-icon">
+      <path d="M80 12 L142 48 L142 112 L80 148 L18 112 L18 48 Z" fill="url(#f-red)" filter="url(#f-shadow)"/>
+      <path d="M80 27 L126 54 L126 105 L80 132 L34 105 L34 54 Z" fill="url(#f-metal)" stroke="#FF6A70" stroke-width="2"/>
+      <path d="M34 54 L80 27 L126 54 L80 66 Z" fill="#FF4650" opacity="0.72"/>
+      <path d="M34 105 L80 132 L126 105 L80 96 Z" fill="#05111C" opacity="0.75"/>
+      <path d="M47 82 H113" stroke="#1F4E68" stroke-width="2"/>
+      <text x="80" y="88" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="900" fill="#EAF6FF" letter-spacing="1">ETF</text>
+      <path d="M48 103 L68 96 L80 105 L112 79" fill="none" stroke="#00D6C8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+      <path d="M101 78 H116 V93" fill="none" stroke="#00D6C8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+    </g>
+  </defs>
+  <rect width="960" height="240" rx="18" fill="#061522"/>
+  <rect x="12" y="12" width="936" height="216" rx="16" fill="url(#f-bg)" stroke="#16384D"/>
+  <use href="#f-icon" transform="translate(34 42)"/>
+  <text x="220" y="78" font-family="Microsoft YaHei UI, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="34" font-weight="800" fill="#EAF6FF">跨境ETF智能投资决策系统</text>
+  <text x="720" y="78" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="900" fill="#FF2F3A">V8</text>
+  <text x="222" y="116" font-family="Microsoft YaHei UI, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="18" fill="#9FB7C8">智能决策 · 精准量化 · 风险守护</text>
+  <path d="M222 146 H604" stroke="#1F4E68" stroke-width="1"/>
+  <text x="222" y="176" font-family="Microsoft YaHei UI, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="16" fill="#EAF6FF">高级徽章型 · 红黑切面 · 桌面软件品牌标识</text>
+  <rect x="806" y="38" width="116" height="116" rx="18" fill="#061927" stroke="#1F4E68"/>
+  <use href="#f-icon" transform="translate(784 29) scale(0.72)"/>
+  <text x="864" y="185" text-anchor="middle" font-family="Microsoft YaHei UI, Microsoft YaHei, Segoe UI, Arial, sans-serif" font-size="14" fill="#7FA6BE">单独图标预览</text>
+</svg>

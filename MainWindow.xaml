@@ -1,0 +1,794 @@
+<Window x:Class="CrossETF.Terminal.UiShell.Reference.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="跨境ETF智能投资决策系统 V9"
+        Width="1600"
+        Height="900"
+        MinWidth="1280"
+        MinHeight="720"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowState="Maximized"
+        Icon="Assets/Branding/CrossETF_V8_AppIcon.ico"
+        Background="{StaticResource AppBackgroundBrush}"
+        FontFamily="Microsoft YaHei UI"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="8"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="EtfPinnedContextMenuStyle" TargetType="{x:Type ContextMenu}">
+            <Setter Property="Background" Value="#071B2A" />
+            <Setter Property="BorderBrush" Value="#2A6688" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ContextMenu}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="EtfPinnedMenuItemStyle" TargetType="{x:Type MenuItem}">
+            <Setter Property="Foreground" Value="#EAF6FF" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="MinWidth" Value="132" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header"
+                                              RecognizesAccessKey="True"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#123A55" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#6F8798" />
+                                <Setter TargetName="ItemBorder" Property="Opacity" Value="0.78" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="EtfPinnedSeparatorStyle" TargetType="{x:Type Separator}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Separator}">
+                        <Border Height="1" Margin="6,4" Background="#1F4E68" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- Phase 1G Layout Lock:
+         整体窗口边距、主布局行列比例、顶部模块、左侧模块、顶部四张核心卡片已确认锁死。
+         后续只允许精修回撤图、ETF 表格、底部三个模块内部视觉。
+         不得随意修改 RowDefinition / ColumnDefinition / 整体 Margin / Padding。 -->
+    <Grid x:Name="RootShell"
+          Background="{StaticResource AppBackgroundBrush}"
+          ClipToBounds="True"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+          SizeChanged="RootShell_SizeChanged">
+        <Viewbox Stretch="Uniform"
+                 HorizontalAlignment="Stretch"
+                 VerticalAlignment="Stretch">
+            <Grid x:Name="DesignSurface"
+                  Width="2560"
+                  Height="1440"
+                  Background="{StaticResource AppBackgroundBrush}">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="98" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="266" />
+                            <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Row="0" Grid.ColumnSpan="3" MouseLeftButtonDown="TitleDragArea_MouseLeftButtonDown">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="520" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="500" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Style="{StaticResource PanelBorderStyle}">
+                            <Grid>
+                                <Image Source="Assets/Branding/CrossETF_V8_AppIcon.png"
+                                       Width="56"
+                                       Height="56"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Center"
+                                       Margin="24,0,0,0"
+                                       Stretch="Uniform"
+                                       SnapsToDevicePixels="True"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                <StackPanel Margin="112,15,16,0" VerticalAlignment="Top">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="跨境ETF智能投资决策系统" FontSize="26" FontWeight="SemiBold" />
+                                        <TextBlock Text=" V8" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource AccentRedBrush}" />
+                                    </StackPanel>
+                                    <TextBlock Text="智能决策 · 精准量化 · 风险守护" Margin="0,6,0,0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}">
+                            <ItemsControl>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Rows="1" Columns="6" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <Grid Margin="18,15,8,10">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="沪深300" FontSize="16" /><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock x:Name="TopHs300PriceText" Text="--" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="TopHs300ChangeText" Text="  未连接" Margin="24,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /></StackPanel></StackPanel>
+                                    <Border Grid.Column="1" Background="#18324A" Opacity="0.55" Margin="0,0,0,0" />
+                                </Grid>
+                                <Grid Margin="18,15,8,10">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="中证500" FontSize="16" /><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock x:Name="TopCsi500PriceText" Text="--" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="TopCsi500ChangeText" Text="  未连接" Margin="24,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /></StackPanel></StackPanel>
+                                    <Border Grid.Column="1" Background="#18324A" Opacity="0.55" />
+                                </Grid>
+                                <Grid Margin="18,15,8,10">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="恒生指数" FontSize="16" /><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock x:Name="TopHsiPriceText" Text="--" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="TopHsiChangeText" Text="  未连接" Margin="16,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /></StackPanel></StackPanel>
+                                    <Border Grid.Column="1" Background="#18324A" Opacity="0.55" />
+                                </Grid>
+                                <Grid Margin="18,15,8,10">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="纳斯达克100" FontSize="16" /><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock x:Name="TopNdqPriceText" Text="--" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="TopNdqChangeText" Text="  未连接" Margin="16,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /></StackPanel></StackPanel>
+                                    <Border Grid.Column="1" Background="#18324A" Opacity="0.55" />
+                                </Grid>
+                                <Grid Margin="18,15,8,10">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="纳斯科技指数" FontSize="16" /><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock x:Name="TopIxicPriceText" Text="--" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="TopIxicChangeText" Text="  未连接" Margin="24,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /></StackPanel></StackPanel>
+                                    <Border Grid.Column="1" Background="#18324A" Opacity="0.55" />
+                                </Grid>
+                                <Grid Margin="18,15,8,10">
+                                    <StackPanel><TextBlock Text="美元 / 人民币" FontSize="16" /><StackPanel Orientation="Horizontal" Margin="0,14,0,0"><TextBlock x:Name="TopFxPriceText" Text="--" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="TopFxChangeText" Text="  未连接" Margin="34,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" /></StackPanel></StackPanel>
+                                </Grid>
+                            </ItemsControl>
+                        </Border>
+
+                        <Border Grid.Column="4" Style="{StaticResource PanelBorderStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="1" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="150" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="24,16,0,0">
+                                    <TextBlock x:Name="ClockText" Text="--" FontSize="17" />
+                                    <TextBlock x:Name="WeekdayText" Text="--" Margin="0,11,0,0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Background="#24415B" Opacity="0.55" Margin="0,21" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="24,0,0,0">
+                                    <Ellipse x:Name="TopStatusLight" Width="15" Height="15" Fill="{StaticResource AccentOrangeBrush}" />
+                                    <TextBlock x:Name="TopStatusText" Text="未配置" Margin="12,0,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource AccentOrangeBrush}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,7,8,0" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                                    <Button Content="─" Click="MinimizeButton_Click" Style="{StaticResource IconButtonStyle}" />
+                                    <Button Content="□" Click="MaximizeButton_Click" Style="{StaticResource IconButtonStyle}" />
+                                    <Button Content="×" Click="CloseButton_Click" Style="{StaticResource IconButtonStyle}" />
+                                </StackPanel>
+                                <TextBlock Text="⚙" Grid.Column="3" Margin="0,42,30,0" HorizontalAlignment="Right" FontSize="21" Foreground="{StaticResource TextSecondaryBrush}" Cursor="Hand" MouseLeftButtonUp="OpenManualEntry_Click" shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <Grid Grid.Row="2" Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="14" />
+                            <RowDefinition Height="277" />
+                        </Grid.RowDefinitions>
+                        <Border Style="{StaticResource PanelBorderStyle}">
+                            <StackPanel x:Name="NavStack" />
+                        </Border>
+                        <Border Grid.Row="2" Style="{StaticResource PanelBorderStyle}">
+                            <Grid Margin="26,20,24,20">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="82" />
+                                    <RowDefinition Height="52" />
+                                    <RowDefinition Height="1" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid>
+                                    <Canvas Width="40" Height="44" HorizontalAlignment="Left" VerticalAlignment="Top">
+                                        <Polygon Points="20,1 37,8 34,31 20,43 6,31 3,8" Fill="#173D25" Stroke="{StaticResource AccentGreenBrush}" StrokeThickness="2" />
+                                        <TextBlock Text="✓" Canvas.Left="12" Canvas.Top="9" FontSize="18" FontWeight="Bold" Foreground="{StaticResource AccentGreenBrush}" />
+                                    </Canvas>
+                                    <StackPanel Margin="58,0,0,0">
+                                        <TextBlock Text="系统状态" FontSize="16.5" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="SideStatusText" Text="未配置" Margin="0,6,0,0" FontSize="14.5" LineHeight="18" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="{StaticResource AccentOrangeBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Grid.Row="1">
+                                    <TextBlock Text="◷" FontSize="25" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="RefreshLatencyText" Text="本地刷新 -- ms" Margin="58,0,0,0" VerticalAlignment="Center" FontSize="15.5" />
+                                </Grid>
+                                <Border Grid.Row="2" Background="{StaticResource BorderSoftBrush}" />
+                                <TextBlock Grid.Row="3" Text="版本： V8.0.0" Margin="18,18,0,0" FontSize="16" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <Grid Grid.Row="2" Grid.Column="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="204" />
+                            <RowDefinition Height="12" />
+                            <RowDefinition Height="388" />
+                            <RowDefinition Height="12" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="12" />
+                            <RowDefinition Height="277" />
+                        </Grid.RowDefinitions>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.05*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="1.05*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="0.95*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="1.25*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource PanelBorderStyle}" Background="{StaticResource CardBrush}">
+                                <Grid Margin="30,20">
+                                    <TextBlock Text="总资产（CNY）" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <TextBlock x:Name="TotalAssetsText" Text="0.00" Margin="0,38,0,0" FontSize="38" FontWeight="Light" />
+                                    <TextBlock Text="今日盈亏" Margin="0,100,0,0" FontSize="19" />
+                                    <TextBlock x:Name="TodayPnlText" Text="--" Margin="0,134,0,0" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <Canvas x:Name="Spark1" Width="240" Height="76" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,12" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}" Background="{StaticResource CardRedBrush}" BorderBrush="#6A1D29">
+                                <Grid Margin="30,20">
+                                    <TextBlock Text="持仓盈亏" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,38,0,0">
+                                        <TextBlock x:Name="PositionPnlText" Text="--" FontSize="37" FontWeight="Light" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        <TextBlock x:Name="PositionPnlPercentText" Text="--" Margin="24,16,0,0" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    </StackPanel>
+                                    <TextBlock Text="持仓盈亏率" Margin="0,100,0,0" FontSize="19" />
+                                    <TextBlock x:Name="PositionPnlRateText" Text="--" Margin="0,134,0,0" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <Canvas x:Name="Spark2" Width="240" Height="76" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,4,12" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="4" Style="{StaticResource PanelBorderStyle}" Background="{StaticResource CardBrush}">
+                                <Grid Margin="30,20,24,18">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="30" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="34" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="底仓完成度" FontSize="19" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <Grid Grid.Row="1">
+                                        <Canvas x:Name="RingCanvas" Width="104" Height="104" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="BaseRatioText" Text="--" Margin="150,0,0,0" VerticalAlignment="Center" FontSize="35" FontWeight="Light" />
+                                    </Grid>
+                                    <Grid Grid.Row="2">
+                                        <TextBlock x:Name="BaseRatioTargetText" Text="目标 --" FontSize="19" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="BaseRatioReachedText" Text="已录入 --" Margin="154,0,0,0" FontSize="19" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="6" Style="{StaticResource PanelBorderStyle}" Background="{StaticResource PoolBrush}" BorderBrush="#1A4B39">
+                                <Grid Margin="30,18">
+                                    <TextBlock Text="狙击资金池" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource AccentGreenBrush}" />
+                                    <TextBlock x:Name="SniperPoolText" Text="0.00" Margin="0,42,0,0" FontSize="38" FontWeight="Light" />
+                                    <TextBlock Text="可用档位" Margin="0,104,0,0" FontSize="18" />
+                                    <TextBlock Text="可用金额" Margin="180,104,0,0" FontSize="18" />
+                                    <TextBlock x:Name="LastRefreshText" Text="待策略模块" Margin="0,137,0,0" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource AccentGreenBrush}" />
+                                    <TextBlock x:Name="SniperPoolAvailableText" Text="0.00" Margin="180,137,0,0" FontSize="18" />
+                                    <Canvas x:Name="PoolCanvas" Width="122" Height="134" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,36,0" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource PanelBorderStyle}">
+                                <Grid Margin="24,16,20,14">
+                                    <TextBlock Text="跟踪指数回撤监控" FontSize="22" FontWeight="SemiBold" />
+                                    <TextBlock Text="（基于跟踪指数历史最大回撤，非ETF价格）" Margin="252,3,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource AccentRedBrush}" />
+                                    <TextBlock x:Name="LeftChartStatusText" Text="T1-T6 前置状态：未就绪" Margin="0,42,0,0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <Canvas x:Name="LeftChartCanvas"
+                                            Margin="0,68,0,0"
+                                            Cursor="Hand"
+                                            ToolTip="双击打开纳指科技指数走势图"
+                                            MouseLeftButtonDown="LeftChartCanvas_MouseLeftButtonDown" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}">
+                                <Grid Margin="24,16,20,14">
+                                    <TextBlock Text="跟踪指数回撤监控" FontSize="22" FontWeight="SemiBold" />
+                                    <TextBlock Text="（基于跟踪指数历史最大回撤，非ETF价格）" Margin="252,3,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource AccentRedBrush}" />
+                                    <TextBlock x:Name="RightChartStatusText" Text="T1-T6 前置状态：未就绪" Margin="0,42,0,0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <Canvas x:Name="RightChartCanvas"
+                                            Margin="0,68,0,0"
+                                            Cursor="Hand"
+                                            ToolTip="双击打开纳斯达克100走势图"
+                                            MouseLeftButtonDown="RightChartCanvas_MouseLeftButtonDown" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+
+                        <Border Grid.Row="4" Style="{StaticResource PanelBorderStyle}">
+                            <Grid Margin="22,14,22,14">
+                                <TextBlock Text="跨境ETF监控与决策" FontSize="23" FontWeight="SemiBold" />
+                                <Button x:Name="CustomizeEtfColumnsButton"
+                                        Width="142"
+                                        Height="38"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Cursor="Hand"
+                                        ToolTip="选择跨境ETF监控与决策表显示列"
+                                        Click="CustomizeEtfColumnsButton_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                                            <Setter Property="Background" Value="#081B29" />
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                            <Setter Property="BorderThickness" Value="1" />
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="ButtonBorder"
+                                                                Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                                CornerRadius="6">
+                                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                <TextBlock Text="☷" FontSize="16" Foreground="{TemplateBinding Foreground}" />
+                                                                <TextBlock Text=" 自定义列" Margin="12,0,0,0" FontSize="15" Foreground="{TemplateBinding Foreground}" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="ButtonBorder" Property="Background" Value="#0B263A" />
+                                                                <Setter Property="BorderBrush" Value="#2A6688" />
+                                                            </Trigger>
+                                                            <Trigger Property="IsPressed" Value="True">
+                                                                <Setter TargetName="ButtonBorder" Property="Background" Value="#123A55" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Grid x:Name="EtfTableGrid" Margin="0,46,0,0" />
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="0.75*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="1.20*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="1.55*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource PanelBorderStyle}">
+                                <Grid Margin="28,18,26,18">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="32" />
+                                        <RowDefinition Height="54" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="42" />
+                                    </Grid.RowDefinitions>
+                                    <Grid>
+                                        <TextBlock Text="委托草案 / 场外替代决策" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" />
+                                        <Button x:Name="FinalizeOrderDraftButton"
+                                                Content="定稿当前草案"
+                                                Width="146"
+                                                Height="29"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                FontSize="12.8"
+                                                ToolTipService.ShowOnDisabled="True"
+                                                OverridesDefaultStyle="True"
+                                                Click="FinalizeOrderDraftButton_Click">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                    <Setter Property="Background" Value="#0B2B42" />
+                                                    <Setter Property="BorderBrush" Value="#2A6F93" />
+                                                    <Setter Property="Foreground" Value="#DCEEFF" />
+                                                    <Setter Property="BorderThickness" Value="1" />
+                                                    <Setter Property="Cursor" Value="Hand" />
+                                                    <Setter Property="Padding" Value="8,0" />
+                                                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="ButtonBorder"
+                                                                        CornerRadius="4"
+                                                                        Background="{TemplateBinding Background}"
+                                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                                                    <ContentPresenter HorizontalAlignment="Center"
+                                                                                      VerticalAlignment="Center"
+                                                                                      TextElement.Foreground="{TemplateBinding Foreground}" />
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsEnabled" Value="False">
+                                                                        <Setter Property="Background" Value="#0C1E2C" />
+                                                                        <Setter Property="BorderBrush" Value="#20384A" />
+                                                                        <Setter Property="Foreground" Value="#70879A" />
+                                                                        <Setter Property="Cursor" Value="Arrow" />
+                                                                    </Trigger>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter Property="Background" Value="#173A58" />
+                                                                        <Setter Property="BorderBrush" Value="#4FA3D1" />
+                                                                    </Trigger>
+                                                                    <Trigger Property="IsPressed" Value="True">
+                                                                        <Setter Property="Background" Value="#1A4870" />
+                                                                        <Setter Property="BorderBrush" Value="#67B9E8" />
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </Grid>
+                                    <Grid Grid.Row="1" Margin="0,8,0,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="24" />
+                                            <RowDefinition Height="22" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock x:Name="OtcSummaryText" Text="暂无 OTCMap 通道数据" FontSize="14.5" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                            <TextBlock x:Name="OtcAClassText" Text="A类通道：-" FontSize="14.5" FontWeight="SemiBold" Foreground="{StaticResource AccentGreenBrush}" />
+                                            <TextBlock x:Name="OtcCClassText" Text="C类通道：-" Margin="16,0,0,0" FontSize="14.5" FontWeight="SemiBold" Foreground="{StaticResource AccentOrangeBrush}" />
+                                            <TextBlock x:Name="OtcLimitText" Text="本地限额：-" Margin="16,0,0,0" FontSize="14.5" Foreground="{StaticResource AccentBlueBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid x:Name="OrderDraftGrid" Grid.Row="2" Margin="0,4,0,0" ClipToBounds="True" />
+                                    <Grid Grid.Row="3" Margin="0,6,0,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="18" />
+                                            <RowDefinition Height="18" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock x:Name="OrderDraftStatusText" Text="委托草案：当前无可定稿草案" FontSize="13.5" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="OrderFinalizationStatusText" Grid.Row="1" Text="定稿：未定稿；定稿不代表成交，不写入 TradeLog" FontSize="13.5" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}">
+                                <Grid Margin="28,18,26,18">
+                                    <TextBlock Text="账户状态" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,44,0,0">
+                                        <TextBlock Text="数据来源：" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        <TextBlock Text="本地数据库" FontSize="16" Foreground="{StaticResource TextPrimaryBrush}" />
+                                        <TextBlock Text="更新时间：" Margin="34,0,0,0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        <TextBlock x:Name="AccountUpdatedAtText" Text="--" FontSize="16" Foreground="{StaticResource TextPrimaryBrush}" />
+                                    </StackPanel>
+                                    <UniformGrid Rows="2" Columns="5" Margin="0,76,0,0">
+                                        <Border Margin="0,0,7,7" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="回放状态" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="AccountReplayStatusText" Text="未回放" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" Foreground="{StaticResource AccentOrangeBrush}" /></StackPanel></Border>
+                                        <Border Margin="3,0,7,7" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="现金余额" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="CashBalanceSummaryText" Text="0.00" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" /></StackPanel></Border>
+                                        <Border Margin="3,0,7,7" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="最新TradeLog" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="AccountReplayLastTradeText" Text="--" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" /></StackPanel></Border>
+                                        <Border Margin="3,0,7,7" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="持仓成本" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="PositionCostSummaryText" Text="0.00" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" /></StackPanel></Border>
+                                        <Border Margin="3,0,0,7" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="持仓市值" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" ToolTip="有真实行情的持仓按行情估值；缺行情的持仓不使用假价格。" /><TextBlock x:Name="KnownMarketValueSummaryText" Text="--" Margin="0,10,0,0" TextAlignment="Center" FontSize="15" Foreground="{StaticResource AccentBlueBrush}" TextTrimming="CharacterEllipsis" /></StackPanel></Border>
+                                        <Border Margin="0,3,7,0" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="本金" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="PrincipalSummaryText" Text="0.00" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" /></StackPanel></Border>
+                                        <Border Margin="3,3,7,0" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="总资产" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="AccountTotalAssetsSummaryText" Text="0.00" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" Foreground="{StaticResource AccentBlueBrush}" /></StackPanel></Border>
+                                        <Border Margin="3,3,7,0" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="已实现盈亏" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="AccountReplayRealizedPnlText" Text="--" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" /></StackPanel></Border>
+                                        <Border Margin="3,3,7,0" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="浮动盈亏" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="AccountReplayFloatingPnlText" Text="--" Margin="0,12,0,0" TextAlignment="Center" FontSize="15.5" /></StackPanel></Border>
+                                        <Border Margin="3,3,0,0" CornerRadius="5" Background="#071827" BorderBrush="{StaticResource BorderSoftBrush}" BorderThickness="1"><StackPanel VerticalAlignment="Center"><TextBlock Text="回放时间" TextAlignment="Center" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock x:Name="AccountReplayCalculatedAtText" Text="--" Margin="0,8,0,0" TextAlignment="Center" FontSize="13.5" TextTrimming="CharacterEllipsis" /></StackPanel></Border>
+                                    </UniformGrid>
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="4" Style="{StaticResource PanelBorderStyle}">
+                                <Grid Margin="28,18,26,18">
+                                    <TextBlock Text="TradeLog 交易日志" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" />
+                                    <TextBlock x:Name="TradeReplayStatusText" Text="回放状态：未回放" Margin="0,34,0,0" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                    <Grid x:Name="TradeGrid" Margin="0,62,0,0" ClipToBounds="True" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Viewbox>
+
+        <Border x:Name="EtfColumnChooserOverlay"
+                Visibility="Collapsed"
+                Opacity="0"
+                Panel.ZIndex="200"
+                Background="#B0050B14">
+            <Border.Resources>
+                <SolidColorBrush x:Key="EtfColumnDialogPanelBrush" Color="#071724" />
+                <SolidColorBrush x:Key="EtfColumnDialogFieldBrush" Color="#0B2233" />
+                <SolidColorBrush x:Key="EtfColumnDialogHoverBrush" Color="#123A55" />
+                <SolidColorBrush x:Key="EtfColumnDialogSelectedBrush" Color="#1A5D80" />
+                <SolidColorBrush x:Key="EtfColumnDialogBorderBrush" Color="#2A6688" />
+                <SolidColorBrush x:Key="EtfColumnDialogTextBrush" Color="#E8F4FF" />
+                <SolidColorBrush x:Key="EtfColumnDialogMutedBrush" Color="#8FA9BA" />
+
+                <Style x:Key="EtfColumnDialogButtonStyle" TargetType="Button">
+                    <Setter Property="Height" Value="34" />
+                    <Setter Property="MinWidth" Value="88" />
+                    <Setter Property="Padding" Value="14,0" />
+                    <Setter Property="Margin" Value="8,0,0,0" />
+                    <Setter Property="Cursor" Value="Hand" />
+                    <Setter Property="Foreground" Value="{StaticResource EtfColumnDialogTextBrush}" />
+                    <Setter Property="Background" Value="{StaticResource EtfColumnDialogFieldBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource EtfColumnDialogBorderBrush}" />
+                    <Setter Property="BorderThickness" Value="1" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="ButtonBorder"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="5">
+                                    <ContentPresenter HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      Margin="{TemplateBinding Padding}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource EtfColumnDialogHoverBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource EtfColumnDialogSelectedBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+
+                <Style x:Key="EtfColumnDialogPageButtonStyle" TargetType="RepeatButton">
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="Background" Value="#0B2233" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="RepeatButton">
+                                <Border Background="{TemplateBinding Background}" />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+
+                <Style TargetType="Thumb">
+                    <Setter Property="Background" Value="#2A6688" />
+                    <Setter Property="BorderBrush" Value="#3D88B0" />
+                    <Setter Property="BorderThickness" Value="1" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Thumb">
+                                <Border x:Name="ThumbBorder"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="4" />
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="ThumbBorder" Property="Background" Value="#3D88B0" />
+                                    </Trigger>
+                                    <Trigger Property="IsDragging" Value="True">
+                                        <Setter TargetName="ThumbBorder" Property="Background" Value="#52A8D0" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+
+                <Style TargetType="{x:Type ScrollBar}">
+                    <Setter Property="Width" Value="14" />
+                    <Setter Property="Background" Value="#071724" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                <Grid Background="{TemplateBinding Background}">
+                                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                        <Track.DecreaseRepeatButton>
+                                            <RepeatButton Style="{StaticResource EtfColumnDialogPageButtonStyle}" />
+                                        </Track.DecreaseRepeatButton>
+                                        <Track.Thumb>
+                                            <Thumb Margin="2" MinHeight="30" />
+                                        </Track.Thumb>
+                                        <Track.IncreaseRepeatButton>
+                                            <RepeatButton Style="{StaticResource EtfColumnDialogPageButtonStyle}" />
+                                        </Track.IncreaseRepeatButton>
+                                    </Track>
+                                </Grid>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+
+                <Style x:Key="EtfColumnDialogCheckBoxStyle" TargetType="CheckBox">
+                    <Setter Property="Foreground" Value="{StaticResource EtfColumnDialogTextBrush}" />
+                    <Setter Property="Background" Value="{StaticResource EtfColumnDialogFieldBrush}" />
+                    <Setter Property="BorderBrush" Value="#1F4E68" />
+                    <Setter Property="MinHeight" Value="32" />
+                    <Setter Property="Margin" Value="0,0,8,8" />
+                    <Setter Property="Cursor" Value="Hand" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="CheckBox">
+                                <Border x:Name="RowBorder"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="5"
+                                        Padding="9,0">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border x:Name="BoxBorder"
+                                                Width="16"
+                                                Height="16"
+                                                CornerRadius="3"
+                                                Background="#071724"
+                                                BorderBrush="#2A6688"
+                                                BorderThickness="1">
+                                            <TextBlock x:Name="CheckMark"
+                                                       Text="✓"
+                                                       FontSize="12"
+                                                       FontWeight="Bold"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="#FFFFFF"
+                                                       Opacity="0" />
+                                        </Border>
+                                        <ContentPresenter Margin="8,0,0,0"
+                                                          VerticalAlignment="Center"
+                                                          RecognizesAccessKey="True"
+                                                          TextElement.Foreground="{TemplateBinding Foreground}" />
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="RowBorder" Property="Background" Value="{StaticResource EtfColumnDialogHoverBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="RowBorder" Property="Background" Value="#0E334B" />
+                                        <Setter TargetName="BoxBorder" Property="Background" Value="{StaticResource EtfColumnDialogSelectedBrush}" />
+                                        <Setter TargetName="CheckMark" Property="Opacity" Value="1" />
+                                    </Trigger>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Foreground" Value="{StaticResource EtfColumnDialogMutedBrush}" />
+                                        <Setter TargetName="RowBorder" Property="Opacity" Value="0.88" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Border.Resources>
+
+            <Border x:Name="EtfColumnChooserPanel"
+                    Width="620"
+                    MaxHeight="760"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{StaticResource EtfColumnDialogPanelBrush}"
+                    BorderBrush="{StaticResource EtfColumnDialogBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="22">
+                <Border.RenderTransform>
+                    <TranslateTransform X="12" />
+                </Border.RenderTransform>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="自定义列"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource EtfColumnDialogTextBrush}" />
+                    <TextBlock Grid.Row="1"
+                               Margin="0,8,0,14"
+                               Text="勾选需要显示的字段；代码、名称、操作指令、操作策略为必选。"
+                               FontSize="14"
+                               Foreground="{StaticResource EtfColumnDialogMutedBrush}"
+                               TextWrapping="Wrap" />
+
+                    <Border Grid.Row="2"
+                            Background="#061927"
+                            BorderBrush="#1F4E68"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="12">
+                        <ScrollViewer MaxHeight="470"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Background="#061927">
+                            <ItemsControl x:Name="EtfColumnChooserItems">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="2" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+
+                    <TextBlock x:Name="EtfColumnChooserStatusText"
+                               Grid.Row="3"
+                               Margin="0,12,0,0"
+                               FontSize="13"
+                               Foreground="{StaticResource AccentOrangeBrush}"
+                               TextWrapping="Wrap" />
+
+                    <DockPanel Grid.Row="4" Margin="0,16,0,0" LastChildFill="False">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                            <Button Content="全选"
+                                    Style="{StaticResource EtfColumnDialogButtonStyle}"
+                                    Margin="0,0,8,0"
+                                    Click="EtfColumnSelectAllButton_Click" />
+                            <Button Content="恢复默认"
+                                    Style="{StaticResource EtfColumnDialogButtonStyle}"
+                                    Margin="0"
+                                    Click="EtfColumnRestoreDefaultButton_Click" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button Content="取消"
+                                    Style="{StaticResource EtfColumnDialogButtonStyle}"
+                                    Click="EtfColumnCancelButton_Click" />
+                            <Button Content="保存"
+                                    Style="{StaticResource EtfColumnDialogButtonStyle}"
+                                    Background="#0B2B42"
+                                    BorderBrush="#3D88B0"
+                                    Click="EtfColumnSaveButton_Click" />
+                        </StackPanel>
+                    </DockPanel>
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
+</Window>
