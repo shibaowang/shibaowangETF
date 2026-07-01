@@ -45,6 +45,24 @@ public sealed class DialogInteractionEffectsTests
         Assert.Contains("WindowInteractionEffects.ApplySmoothOpen(dialog)", riskCode, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MainWindowNavigation_UsesOpaqueDarkBackgroundsAndAllowsRepeatClicks()
+    {
+        string xaml = ReadRepositoryFile("MainWindow.xaml");
+        string code = ReadRepositoryFile("MainWindow.xaml.cs");
+
+        Assert.Contains("<StackPanel x:Name=\"NavStack\" Background=\"#06101B\" />", xaml, StringComparison.Ordinal);
+        Assert.Contains("new Grid { Height = 83, Tag = names[i], Background = BrushFrom(\"#06101B\") }", code, StringComparison.Ordinal);
+        Assert.Contains("Background = i == 0 ? BrushFrom(\"#8A1D2A\") : BrushFrom(\"#06101B\")", code, StringComparison.Ordinal);
+        Assert.Contains("border.SetValue(System.Windows.Controls.Border.BackgroundProperty, BrushFrom(\"#06101B\"));", code, StringComparison.Ordinal);
+        Assert.Contains("SelectNavigation(navigationName);", code, StringComparison.Ordinal);
+        Assert.Contains("OpenRiskCenter();", code, StringComparison.Ordinal);
+        Assert.Contains("OpenManualEntry(scope);", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (string.Equals(_selectedNavigationName, navigationName, StringComparison.Ordinal))", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content = null", code, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Thread.Sleep", code, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ReadRepositoryFile(string relativePath)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

@@ -11,7 +11,7 @@
         WindowStyle="None"
         ResizeMode="CanResize"
         WindowState="Maximized"
-        Icon="Assets/Branding/CrossETF_V8_AppIcon.ico"
+        Icon="Resources/AppIcon.ico"
         Background="{StaticResource AppBackgroundBrush}"
         FontFamily="Microsoft YaHei UI"
         UseLayoutRounding="True"
@@ -219,8 +219,8 @@
                             <RowDefinition Height="14" />
                             <RowDefinition Height="277" />
                         </Grid.RowDefinitions>
-                        <Border Style="{StaticResource PanelBorderStyle}">
-                            <StackPanel x:Name="NavStack" />
+                        <Border Style="{StaticResource PanelBorderStyle}" Background="{StaticResource PanelBrush}">
+                            <StackPanel x:Name="NavStack" Background="#06101B" />
                         </Border>
                         <Border Grid.Row="2" Style="{StaticResource PanelBorderStyle}">
                             <Grid Margin="26,20,24,20">

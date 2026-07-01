@@ -51,6 +51,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, string> _etfOrderDraftTooltips = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _etfCellValueSnapshot = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, bool> _etfRowHasPosition = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Border> _navigationBackgrounds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TextBlock> _navigationLabels = new(StringComparer.Ordinal);
+    private string? _selectedNavigationName;
     private string? _selectedEtfStrategyCode;
     private string? _lastPinnedFeedbackSymbol;
     private DateTimeOffset _lastPinnedFeedbackAt;
@@ -1507,17 +1510,36 @@ public partial class MainWindow : Window
             return;
         }
 
+        e.Handled = true;
+        SelectNavigation(navigationName);
+
         if (IsRiskCenterNavigation(navigationName))
         {
-            e.Handled = true;
             OpenRiskCenter();
             return;
         }
 
         if (ResolveManualEntryScopeForNavigation(navigationName) is ManualEntryScope scope)
         {
-            e.Handled = true;
             OpenManualEntry(scope);
+        }
+    }
+
+    private void SelectNavigation(string navigationName)
+    {
+        _selectedNavigationName = navigationName;
+
+        foreach ((string name, Border background) in _navigationBackgrounds)
+        {
+            bool isSelected = string.Equals(name, navigationName, StringComparison.Ordinal);
+            background.Background = BrushFrom(isSelected ? "#8A1D2A" : "#06101B");
+            background.CornerRadius = new CornerRadius(isSelected ? 7 : 0);
+        }
+
+        foreach ((string name, TextBlock label) in _navigationLabels)
+        {
+            bool isSelected = string.Equals(name, navigationName, StringComparison.Ordinal);
+            label.FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal;
         }
     }
 
@@ -1540,6 +1562,8 @@ public partial class MainWindow : Window
     private void BuildNavigation()
     {
         NavStack.Children.Clear();
+        _navigationBackgrounds.Clear();
+        _navigationLabels.Clear();
         string[] icons = { "⌂", "▥", "◔", "⌁", "▣", "◱", "▤", "♢", "⚙" };
         string[] names =
         {
@@ -1549,17 +1573,18 @@ public partial class MainWindow : Window
 
         for (int i = 0; i < names.Length; i++)
         {
-            var row = new Grid { Height = 83, Tag = names[i], Background = Brushes.Transparent };
+            var row = new Grid { Height = 83, Tag = names[i], Background = BrushFrom("#06101B") };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(86) });
             row.ColumnDefinitions.Add(new ColumnDefinition());
 
             var bg = new Border
             {
-                Background = i == 0 ? BrushFrom("#8A1D2A") : Brushes.Transparent,
+                Background = i == 0 ? BrushFrom("#8A1D2A") : BrushFrom("#06101B"),
                 CornerRadius = new CornerRadius(i == 0 ? 7 : 0)
             };
             Grid.SetColumnSpan(bg, 2);
             row.Children.Add(bg);
+            _navigationBackgrounds[names[i]] = bg;
 
             row.Children.Add(new TextBlock
             {
@@ -1579,6 +1604,7 @@ public partial class MainWindow : Window
             };
             Grid.SetColumn(label, 1);
             row.Children.Add(label);
+            _navigationLabels[names[i]] = label;
             if (IsActionableNavigation(names[i]))
             {
                 var navButton = new Button
@@ -1586,7 +1612,7 @@ public partial class MainWindow : Window
                     Content = row,
                     Tag = names[i],
                     Height = 83,
-                    Background = Brushes.Transparent,
+                    Background = BrushFrom("#06101B"),
                     BorderBrush = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
                     Padding = new Thickness(0),
@@ -1604,13 +1630,18 @@ public partial class MainWindow : Window
             }
             NavStack.Children.Add(row);
         }
+
+        if (names.Length > 0)
+        {
+            SelectNavigation(names[0]);
+        }
     }
 
     private static ControlTemplate CreateTransparentNavigationButtonTemplate()
     {
         var template = new ControlTemplate(typeof(Button));
         var border = new FrameworkElementFactory(typeof(System.Windows.Controls.Border));
-        border.SetValue(System.Windows.Controls.Border.BackgroundProperty, Brushes.Transparent);
+        border.SetValue(System.Windows.Controls.Border.BackgroundProperty, BrushFrom("#06101B"));
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
         presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Stretch);
