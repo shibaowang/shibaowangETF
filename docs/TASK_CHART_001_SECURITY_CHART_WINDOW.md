@@ -1,5 +1,15 @@
 # TASK-CHART-001：ETF 标的走势图窗口
 
+## 2026-07-01 LOCK-CHART-POST-CLOSE-INTRADAY-REFRESH-001 post-close ETF intraday catch-up lock
+
+- After A-share close, an ETF chart must not treat a partial same-day intraday cache as final. If the latest real same-day ETF intraday point is earlier than `14:57`, opening the chart after 15:00 must schedule a low-frequency real intraday catch-up through the existing `GlobalMarketRequestScheduler` and per-symbol cooldown path.
+- ETF post-close catch-up uses the real Tencent `minute/query` intraday source. It must not bypass rate limits, must not retry at high frequency, and must not fabricate middle-minute prices.
+- When real catch-up succeeds, the main intraday chart uses the returned real minute points and real source volume fields to draw through the close area.
+- When real catch-up fails or remains incomplete, the allowed fallback is the existing real cache plus an independent close quote marker. The close quote marker is display-only and may be shown as a dot, label, or marker.
+- `QUOTE_CLOSE_DISPLAY` for ETF charts must not be connected to the previous real intraday point as a diagonal line, must not write `chart_intraday_cache`, must not generate volume bars, and must not participate in ETF intraday MACD.
+- This lock covers ETFs `159509`, `159660`, `159941`, `513100`, `513300`, `159501`, `159513`, and `159659`. Index paths remain under their existing locks: `251.NDXTMC` still does not fabricate volume, and `100.NDX100` uses only real source volume.
+- This behavior does not change TradeLog, order drafts, account replay, holdings replay, strategy decisions, alerts, market routing, or main-window manual refresh behavior.
+
 ## 2026-06-30 TASK-INDEX-INTRADAY-MACD-VOLUME-030 index intraday MACD and volume closeout
 
 - `251.NDXTMC` and `100.NDX100` intraday MACD now follows the full `09:30-16:00 ET` index display sequence. The ETF intraday display limit is still applied only to ETF snapshots, not to index MACD.

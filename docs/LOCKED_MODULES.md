@@ -350,6 +350,56 @@ Forbidden without explicit user confirmation:
 - Do not add heavy animation or blocking sleeps.
 - Do not change any business logic while adjusting dialog interaction behavior.
 
+### 1.18 LOCK-CHART-POST-CLOSE-INTRADAY-REFRESH-001：收盘后 ETF 真实分时补齐与 quote 独立显示锁定
+
+Locked commit:
+- `072bb0d418aea3e3cc61a37916d57b4f3888f3c3`
+- `Fix post-close intraday refresh for ETF charts`
+
+Accepted behavior:
+- After 15:00, reopening the app or opening an ETF `SecurityChartWindow` must attempt a real intraday catch-up when the current same-day real intraday cache is missing or incomplete.
+- ETF intraday catch-up must use the real ETF intraday source, currently Tencent `minute/query`.
+- If the same-day `chart_intraday_cache` latest real intraday point is earlier than `14:57` and the current time is after A-share close, the chart path must schedule one low-frequency real intraday catch-up check.
+- Catch-up must go through the existing `GlobalMarketRequestScheduler` and the existing per-symbol cooldown/circuit-breaker path.
+- Bypassing global rate limits is forbidden.
+- High-frequency repeated intraday requests are forbidden.
+- When catch-up succeeds, the ETF main intraday chart must render the real intraday curve through the close area using real source points.
+- Volume bars may use only real intraday volume fields.
+- Fake volume is forbidden.
+- Fake middle-minute prices are forbidden.
+- Interpolating from `quote price` to generate a fake `14:20-15:00` path is forbidden.
+- Connecting a close quote directly to the latest real intraday point as a diagonal line is forbidden.
+- `QUOTE_CLOSE_DISPLAY` may be used only as a degraded display marker, dot, or label.
+- `QUOTE_CLOSE_DISPLAY` must not be written to `chart_intraday_cache`.
+- `QUOTE_CLOSE_DISPLAY` must not participate in the continuous ETF main intraday polyline.
+- `QUOTE_CLOSE_DISPLAY` must not participate in ETF intraday MACD calculation.
+- If real intraday refresh fails or still returns incomplete data, the only allowed degradation is cache plus an independent quote marker.
+- In degraded display, the chart must not connect, interpolate, fill middle minutes, or create volume.
+- `251.NDXTMC` must continue to follow the no-fake-volume rule.
+- Existing index chart locks remain unchanged.
+- This lock must not affect TradeLog, order drafts, account replay, holdings replay, or strategy decisions.
+- This lock must not add a main-window manual refresh button.
+
+Covered symbols:
+- ETFs: `159509`, `159660`, `159941`, `513100`, `513300`, `159501`, `159513`, `159659`.
+- Indexes: `251.NDXTMC` keeps the existing index route and no-fake-volume behavior; `100.NDX100` keeps the existing index route and uses only real source volume.
+- Other: `311513` does not enter the ETF intraday catch-up path, does not fabricate intraday points, and does not fabricate volume.
+
+Current test baseline:
+- `806/806`
+
+Protection tests:
+- ETF cache whose latest real same-day point is earlier than `14:57` triggers a post-15:00 real intraday catch-up check.
+- Successful real intraday catch-up makes the main chart use the real intraday curve.
+- Failed real intraday catch-up degrades to cache plus an independent quote marker.
+- `QUOTE_CLOSE_DISPLAY` does not connect to the main polyline.
+- `QUOTE_CLOSE_DISPLAY` does not participate in ETF MACD.
+- `QUOTE_CLOSE_DISPLAY` does not generate volume bars.
+- `251.NDXTMC` still does not fabricate volume.
+- TradeLog is not written.
+- `order_draft_state` is not changed.
+- No main-window manual refresh button is added.
+
 ## 2. 后续任务解锁流程
 
 后续任何 Codex 任务如果需要修改锁定模块，必须先输出：
