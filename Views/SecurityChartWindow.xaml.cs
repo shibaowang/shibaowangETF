@@ -244,6 +244,8 @@ public partial class SecurityChartWindow : Window
             .Where(point => ShouldConnectIntradayPoint(snapshot, point))
             .ToArray();
         IntradayPoint? quoteTail = points.LastOrDefault(point => point.IsQuoteTail);
+        IntradayPoint? quoteCloseDisplay = points.LastOrDefault(point => point.IsQuoteCloseDisplayPoint
+                                                                          && snapshot.Security.InstrumentType != ChartInstrumentType.Index);
         Point latestPoint = new(plot.Left, plot.Bottom);
         if (linePoints.Length > 0)
         {
@@ -271,6 +273,15 @@ public partial class SecurityChartWindow : Window
             AddQuoteTailMarker(MainChartCanvas, quotePoint);
             AddText(MainChartCanvas, FormatNumber(quoteTail.Price), Math.Min(plot.Right - 62, quotePoint.X + 6), quotePoint.Y - 18, 13, TextBrush);
             return;
+        }
+
+        if (quoteCloseDisplay is not null)
+        {
+            Point quotePoint = new(
+                XByIntradayPoint(plot, snapshot, quoteCloseDisplay.Time, points.Length - 1, points.Length),
+                YByValue(plot, quoteCloseDisplay.Price, min, max));
+            AddQuoteTailMarker(MainChartCanvas, quotePoint);
+            AddText(MainChartCanvas, FormatNumber(quoteCloseDisplay.Price), Math.Min(plot.Right - 62, quotePoint.X + 6), quotePoint.Y - 18, 13, TextBrush);
         }
 
         if (linePoints.Length > 0)
@@ -626,7 +637,9 @@ public partial class SecurityChartWindow : Window
 
     public static bool ShouldConnectIntradayPoint(SecurityChartSnapshot snapshot, IntradayPoint point)
         // LOCKED: Index quote tails stay independent; do not connect partial real intraday cache directly to quote.
-        => snapshot.Security.InstrumentType != ChartInstrumentType.Index || !point.IsQuoteTail;
+        => snapshot.Security.InstrumentType == ChartInstrumentType.Index
+            ? !point.IsQuoteTail
+            : !point.IsQuoteCloseDisplayPoint;
 
     private static MacdPoint[] VisibleIntradayMacdPoints(SecurityChartSnapshot snapshot)
         => snapshot.Macd

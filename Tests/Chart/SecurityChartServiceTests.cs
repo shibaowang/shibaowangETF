@@ -306,10 +306,12 @@ public sealed class SecurityChartServiceTests
             cache,
             null);
 
-        Assert.Equal(2, snapshot.IntradayPoints.Count);
+        Assert.Equal(3, snapshot.IntradayPoints.Count);
         Assert.All(snapshot.IntradayPoints, point => Assert.True(IntradayTradingTimeAxis.IsTradingTime(point.Time)));
         Assert.DoesNotContain(snapshot.IntradayPoints, point => point.Time.Hour == 16);
-        Assert.False(snapshot.HasQuoteTail);
+        Assert.True(snapshot.HasQuoteTail);
+        Assert.True(snapshot.IntradayPoints[^1].IsQuoteCloseDisplayPoint);
+        Assert.Equal(new DateTime(2026, 6, 19, 15, 0, 0), snapshot.IntradayPoints[^1].Time);
     }
 
     [Fact]
@@ -1121,6 +1123,158 @@ public sealed class SecurityChartServiceTests
     }
 
     [Fact]
+    public void BuildSnapshot_EtfPostCloseQuoteAlignsCloseWithoutFakeVolume()
+    {
+        ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("159509", "纳指科技ETF景顺");
+        IntradayPoint[] points = FullTradingDayPoints(new DateTime(2026, 7, 1))
+            .Where(point => point.Time.TimeOfDay <= new TimeSpan(14, 28, 0))
+            .ToArray();
+        var cache = new ChartIntradayCacheEntry(
+            points,
+            new ChartDataStatus(true, "真实分时缓存", true),
+            DateTimeOffset.Parse("2026-07-01T15:01:38+08:00", CultureInfo.InvariantCulture));
+        MarketQuoteRecord quote = Quote("159509", 2.662, "2026-07-01 15:03:39");
+
+        SecurityChartSnapshot snapshot = ChartDataService.BuildSnapshot(
+            info,
+            SecurityChartPeriod.Intraday,
+            SecurityChartSubPanel.Volume,
+            new[] { quote },
+            Array.Empty<MarketQuoteRecord>(),
+            cache,
+            null);
+
+        IntradayPoint close = snapshot.IntradayPoints[^1];
+        Assert.True(snapshot.HasQuoteTail);
+        Assert.True(close.IsQuoteCloseDisplayPoint);
+        Assert.False(close.IsQuoteTail);
+        Assert.Equal("QUOTE_CLOSE_DISPLAY", close.PointSource);
+        Assert.Equal(new DateTime(2026, 7, 1, 15, 0, 0), close.Time);
+        Assert.Equal(2.662, close.Price);
+        Assert.Null(close.Volume);
+        Assert.Null(close.Amount);
+        Assert.Contains("收盘quote对齐", snapshot.MainStatus.Message, StringComparison.Ordinal);
+        Assert.False(CrossETF.Terminal.UiShell.Reference.Views.SecurityChartWindow.ShouldConnectIntradayPoint(snapshot, close));
+    }
+
+    [Fact]
+    public void BuildSnapshot_EtfPostCloseQuoteOnlyCreatesDisplayClosePointWithoutVolume()
+    {
+        ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("513300", "纳斯达克ETF华夏");
+        MarketQuoteRecord quote = Quote("513300", 2.707, "2026-07-01 15:03:39");
+
+        SecurityChartSnapshot snapshot = ChartDataService.BuildSnapshot(
+            info,
+            SecurityChartPeriod.Intraday,
+            SecurityChartSubPanel.Volume,
+            new[] { quote },
+            Array.Empty<MarketQuoteRecord>(),
+            null,
+            null);
+
+        IntradayPoint point = Assert.Single(snapshot.IntradayPoints);
+        Assert.True(point.IsQuoteCloseDisplayPoint);
+        Assert.Equal("QUOTE_CLOSE_DISPLAY", point.PointSource);
+        Assert.Equal(new DateTime(2026, 7, 1, 15, 0, 0), point.Time);
+        Assert.Null(point.Volume);
+        Assert.Null(point.Amount);
+        Assert.False(snapshot.VolumeStatus.IsReady);
+        Assert.False(CrossETF.Terminal.UiShell.Reference.Views.SecurityChartWindow.ShouldConnectIntradayPoint(snapshot, point));
+    }
+
+    [Fact]
+    public void BuildSnapshot_PostCloseQuoteAlignmentCoversConfiguredEtfs()
+    {
+        string[] symbols = ["159509", "159660", "159941", "513100", "513300", "311513", "159513", "159659"];
+
+        foreach (string symbol in symbols)
+        {
+            ChartSecurityInfo info = ChartDataService.CreateSecurityInfo(symbol, "ETF");
+            var cache = new ChartIntradayCacheEntry(
+                new[]
+                {
+                    Intraday(new DateTime(2026, 7, 1, 14, 57, 0), 2.60, 100),
+                    Intraday(new DateTime(2026, 7, 1, 14, 58, 0), 2.61, 120)
+                },
+                new ChartDataStatus(true, "真实分时缓存", true),
+                DateTimeOffset.Parse("2026-07-01T14:58:00+08:00", CultureInfo.InvariantCulture));
+            MarketQuoteRecord quote = Quote(symbol, 2.66, "2026-07-01 15:03:39");
+
+            SecurityChartSnapshot snapshot = ChartDataService.BuildSnapshot(
+                info,
+                SecurityChartPeriod.Intraday,
+                SecurityChartSubPanel.Volume,
+                new[] { quote },
+                Array.Empty<MarketQuoteRecord>(),
+                cache,
+                null);
+
+            IntradayPoint close = snapshot.IntradayPoints[^1];
+            Assert.True(close.IsQuoteCloseDisplayPoint);
+            Assert.Equal(new DateTime(2026, 7, 1, 15, 0, 0), close.Time);
+            Assert.Null(close.Volume);
+            Assert.Null(close.Amount);
+            Assert.False(CrossETF.Terminal.UiShell.Reference.Views.SecurityChartWindow.ShouldConnectIntradayPoint(snapshot, close));
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_EtfCompleteRealIntradayCloseStillConnects()
+    {
+        ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("159941", "纳指ETF广发");
+        IntradayPoint[] points = FullTradingDayPoints(new DateTime(2026, 7, 1));
+        var cache = new ChartIntradayCacheEntry(
+            points,
+            new ChartDataStatus(true, "真实分时缓存", true),
+            DateTimeOffset.Parse("2026-07-01T15:00:00+08:00", CultureInfo.InvariantCulture));
+        MarketQuoteRecord quote = Quote("159941", 1.652, "2026-07-01 17:13:48");
+
+        SecurityChartSnapshot snapshot = ChartDataService.BuildSnapshot(
+            info,
+            SecurityChartPeriod.Intraday,
+            SecurityChartSubPanel.Volume,
+            new[] { quote },
+            Array.Empty<MarketQuoteRecord>(),
+            cache,
+            null);
+
+        IntradayPoint close = snapshot.IntradayPoints[^1];
+        Assert.Equal(new DateTime(2026, 7, 1, 15, 0, 0), close.Time);
+        Assert.False(close.IsQuoteCloseDisplayPoint);
+        Assert.False(snapshot.HasQuoteTail);
+        Assert.True(CrossETF.Terminal.UiShell.Reference.Views.SecurityChartWindow.ShouldConnectIntradayPoint(snapshot, close));
+    }
+
+    [Fact]
+    public void BuildSnapshot_EtfPostCloseQuoteDoesNotExtendMacdToClose()
+    {
+        ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("159941", "纳指ETF广发");
+        IntradayPoint[] points = FullTradingDayPoints(new DateTime(2026, 7, 1))
+            .Where(point => point.Time.TimeOfDay <= new TimeSpan(14, 20, 0))
+            .ToArray();
+        var cache = new ChartIntradayCacheEntry(
+            points,
+            new ChartDataStatus(true, "真实分时缓存", true),
+            DateTimeOffset.Parse("2026-07-01T14:20:00+08:00", CultureInfo.InvariantCulture));
+        MarketQuoteRecord quote = Quote("159941", 1.652, "2026-07-01 17:13:48");
+
+        SecurityChartSnapshot snapshot = ChartDataService.BuildSnapshot(
+            info,
+            SecurityChartPeriod.Intraday,
+            SecurityChartSubPanel.Macd,
+            new[] { quote },
+            Array.Empty<MarketQuoteRecord>(),
+            cache,
+            null);
+
+        Assert.True(snapshot.IntradayPoints[^1].IsQuoteCloseDisplayPoint);
+        Assert.Equal(new DateTime(2026, 7, 1, 15, 0, 0), snapshot.IntradayPoints[^1].Time);
+        Assert.True(snapshot.Macd.Count > 0);
+        Assert.Equal(new DateTime(2026, 7, 1, 14, 20, 0), snapshot.Macd[^1].Date);
+        Assert.DoesNotContain(snapshot.Macd, point => point.Date == new DateTime(2026, 7, 1, 15, 0, 0));
+    }
+
+    [Fact]
     public void BuildSnapshot_IntradayUnavailableDoesNotGenerateFakePoints()
     {
         ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("159941", "绾虫寚ETF骞垮彂");
@@ -1904,6 +2058,68 @@ public sealed class SecurityChartServiceTests
 
         Assert.Equal(0, fakeClient.GetIntradayRequestCount(info.EastMoneySecId));
         Assert.Equal(0, store.SaveCount);
+    }
+
+    [Fact]
+    public async Task ChartRefreshCoordinator_EtfPostClosePartialCacheCatchUpUsesRealTencentIntraday()
+    {
+        var subscriptions = new ChartSubscriptionService();
+        var cache = new ChartCache();
+        var fakeClient = new FakeChartMarketDataClient();
+        var store = new FakeChartIntradayCacheStore
+        {
+            Entry = new ChartIntradayCacheEntry(
+                FullTradingDayPoints(new DateTime(2026, 7, 1))
+                    .Where(point => point.Time.TimeOfDay <= new TimeSpan(14, 20, 0))
+                    .ToArray(),
+                new ChartDataStatus(true, "real intraday cache", true),
+                DateTimeOffset.Parse("2026-07-01T14:20:00+08:00", CultureInfo.InvariantCulture))
+        };
+        DateTimeOffset now = DateTimeOffset.Parse("2026-07-01T17:13:48+08:00", CultureInfo.InvariantCulture);
+        var coordinator = new ChartDataRefreshCoordinator(subscriptions, cache, fakeClient, intradayCacheStore: store, nowProvider: () => now);
+        ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("159941", "纳指ETF广发");
+        subscriptions.Subscribe(info, SecurityChartPeriod.Intraday, SecurityChartSubPanel.Volume);
+        fakeClient.EnqueueIntradaySuccess(info.EastMoneySecId, FullTradingDayPoints(new DateTime(2026, 7, 1)));
+
+        await coordinator.RefreshAsync(Array.Empty<MarketQuoteRecord>(), Array.Empty<MarketQuoteRecord>(), CancellationToken.None);
+
+        Assert.Equal(1, fakeClient.GetIntradayRequestCount(info.EastMoneySecId));
+        Assert.Equal(1, store.SaveCount);
+        ChartIntradayCacheEntry? entry = cache.GetIntraday("159941");
+        Assert.NotNull(entry);
+        IntradayPoint last = entry!.Points[^1];
+        Assert.Equal(new DateTime(2026, 7, 1, 15, 0, 0), last.Time);
+        Assert.False(last.IsQuoteCloseDisplayPoint);
+        Assert.False(last.IsQuoteTail);
+        Assert.NotNull(last.Volume);
+    }
+
+    [Fact]
+    public async Task ChartRefreshCoordinator_EtfPostCloseCatchUpFailureKeepsPartialCache()
+    {
+        var subscriptions = new ChartSubscriptionService();
+        var cache = new ChartCache();
+        var fakeClient = new FakeChartMarketDataClient();
+        var store = new FakeChartIntradayCacheStore
+        {
+            Entry = new ChartIntradayCacheEntry(
+                new[] { Intraday(new DateTime(2026, 7, 1, 14, 20, 0), 1.60, 100) },
+                new ChartDataStatus(true, "real intraday cache", true),
+                DateTimeOffset.Parse("2026-07-01T14:20:00+08:00", CultureInfo.InvariantCulture))
+        };
+        DateTimeOffset now = DateTimeOffset.Parse("2026-07-01T17:13:48+08:00", CultureInfo.InvariantCulture);
+        var coordinator = new ChartDataRefreshCoordinator(subscriptions, cache, fakeClient, intradayCacheStore: store, nowProvider: () => now);
+        ChartSecurityInfo info = ChartDataService.CreateSecurityInfo("159941", "纳指ETF广发");
+        subscriptions.Subscribe(info, SecurityChartPeriod.Intraday, SecurityChartSubPanel.Volume);
+        fakeClient.EnqueueIntradayFailure(info.EastMoneySecId, "Tencent minute/query failed");
+
+        await coordinator.RefreshAsync(Array.Empty<MarketQuoteRecord>(), Array.Empty<MarketQuoteRecord>(), CancellationToken.None);
+
+        Assert.Equal(0, store.SaveCount);
+        ChartIntradayCacheEntry? entry = cache.GetIntraday("159941");
+        Assert.NotNull(entry);
+        Assert.Single(entry!.Points);
+        Assert.Equal(new DateTime(2026, 7, 1, 14, 20, 0), entry.Points[0].Time);
     }
 
     [Fact]

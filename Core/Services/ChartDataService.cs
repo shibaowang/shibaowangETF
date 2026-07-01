@@ -61,6 +61,7 @@ public static class ChartDataService
         if (period == SecurityChartPeriod.Intraday)
         {
             IReadOnlyList<IntradayPoint> points = BuildIntradayPoints(security, intradayCache, quote, out bool hasQuoteTail);
+            bool hasQuoteCloseDisplay = points.Any(point => point.IsQuoteCloseDisplayPoint);
             double? previousClose = ResolveIntradayPreviousClose(quote, historyRecords, chartDailyKLineCache, security);
             bool hasRealIntradayCache = intradayCache?.Points.Count > 0;
             ChartDataStatus status = points.Count == 0
@@ -72,7 +73,7 @@ public static class ChartDataService
                     intradayCache?.Status.IsCircuitOpen ?? false)
                 : new ChartDataStatus(
                     true,
-                    ResolveIntradayStatusMessage(security, hasQuoteTail, hasRealIntradayCache, intradayCache?.Status),
+                    ResolveIntradayStatusMessage(security, hasQuoteTail, hasQuoteCloseDisplay, hasRealIntradayCache, intradayCache?.Status),
                     intradayCache?.Status.IsUsingCache ?? false,
                     intradayCache?.Status.IsRateLimited ?? false,
                     intradayCache?.Status.IsCircuitOpen ?? false);
@@ -84,8 +85,11 @@ public static class ChartDataService
                 quote,
                 points,
                 Array.Empty<KLinePoint>());
+            IEnumerable<IntradayPoint> macdInputPoints = security.InstrumentType == ChartInstrumentType.Index
+                ? points
+                : points.Where(point => !point.IsQuoteCloseDisplayPoint);
             IReadOnlyList<MacdPoint> intradayMacd = MacdCalculator.CalculateFromPrices(
-                points.Select(point => (Time: point.Time, Close: point.Price)));
+                macdInputPoints.Select(point => (Time: point.Time, Close: point.Price)));
             ChartDataStatus intradayMacdStatus = intradayMacd.Count == 0
                 ? new ChartDataStatus(false, "MACD数据不足")
                 : new ChartDataStatus(true, "真实分时MACD");
@@ -201,6 +205,7 @@ public static class ChartDataService
     private static string ResolveIntradayStatusMessage(
         ChartSecurityInfo security,
         bool hasQuoteTail,
+        bool hasQuoteCloseDisplay,
         bool hasRealIntradayCache,
         ChartDataStatus? cacheStatus)
     {
@@ -210,6 +215,13 @@ public static class ChartDataService
             return cacheStatus?.IsUsingCache == true
                 ? cacheStatus.Message
                 : isIndex ? "指数价格分时可用" : "真实分时数据";
+        }
+
+        if (hasQuoteCloseDisplay && !isIndex)
+        {
+            return hasRealIntradayCache
+                ? "真实分时缓存 + 收盘quote对齐；未补成交量"
+                : "收盘quote对齐，无真实分时缓存；未补成交量";
         }
 
         if (!hasRealIntradayCache)
@@ -285,9 +297,19 @@ public static class ChartDataService
         }
 
         DateTime? quoteTime = ParseMarketTime(quote.QuoteTime) ?? ParseMarketTime(quote.ReceivedAt);
-        if (!quoteTime.HasValue
-            || (useStandardTradingAxis && !IntradayTradingTimeAxis.IsTradingTime(quoteTime.Value)))
+        if (!quoteTime.HasValue)
         {
+            return points;
+        }
+
+        if (useStandardTradingAxis && !IntradayTradingTimeAxis.IsTradingTime(quoteTime.Value))
+        {
+            if (TryBuildStandardPostCloseQuoteDisplayPoints(points, quoteTime.Value, price, out IReadOnlyList<IntradayPoint> closeAlignedPoints))
+            {
+                hasQuoteTail = true;
+                return TrimIntradayForDisplay(security, closeAlignedPoints);
+            }
+
             return points;
         }
 
@@ -332,6 +354,63 @@ public static class ChartDataService
 
         hasQuoteTail = true;
         return TrimIntradayForDisplay(security, result);
+    }
+
+    private static bool TryBuildStandardPostCloseQuoteDisplayPoints(
+        IntradayPoint[] points,
+        DateTime quoteTime,
+        double quotePrice,
+        out IReadOnlyList<IntradayPoint> result)
+    {
+        // LOCKED: Post-close quote alignment is display-only. It must not fill missing minutes or create volume.
+        result = Array.Empty<IntradayPoint>();
+        if (quoteTime.TimeOfDay <= IntradayTradingTimeAxis.AfternoonClose)
+        {
+            return false;
+        }
+
+        DateTime closeTime = quoteTime.Date.Add(IntradayTradingTimeAxis.AfternoonClose);
+        if (!IntradayTradingTimeAxis.TryGetXRatio(closeTime, out _))
+        {
+            return false;
+        }
+
+        var displayPoints = new List<IntradayPoint>();
+        if (points.Length > 0 && points[^1].Time.Date == quoteTime.Date)
+        {
+            displayPoints.AddRange(points);
+        }
+
+        var closePoint = new IntradayPoint
+        {
+            Time = closeTime,
+            Price = quotePrice,
+            AveragePrice = null,
+            Volume = null,
+            Amount = null,
+            IsQuoteTail = false,
+            IsQuoteCloseDisplayPoint = true,
+            PointSource = QuoteCloseDisplayPointSource
+        };
+
+        if (displayPoints.Count == 0)
+        {
+            result = new[] { closePoint };
+            return true;
+        }
+
+        IntradayPoint last = displayPoints[^1];
+        if (last.Time.TimeOfDay >= IntradayTradingTimeAxis.AfternoonClose)
+        {
+            return false;
+        }
+        else
+        {
+            displayPoints.Add(closePoint);
+        }
+
+        result = displayPoints;
+        return true;
     }
 
     private static bool TryBuildIndexQuoteCloseDisplayPoints(

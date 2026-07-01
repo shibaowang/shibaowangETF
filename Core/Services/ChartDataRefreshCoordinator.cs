@@ -11,6 +11,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
     private static readonly TimeSpan BackgroundIntradayRequestInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan IndexIntradayCatchUpRequestInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan KLineRequestInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan StandardIntradayCloseCompleteThreshold = new(14, 57, 0);
     private const int BackgroundIntradayMaxRequestsPerTick = 1;
 
     private readonly ChartSubscriptionService _subscriptions;
@@ -254,7 +255,9 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
                 continue;
             }
 
-            if (!ShouldRequestIntradayLive(security, now))
+            if (!ShouldRequestIntradayLive(security, now)
+                && (route.Provider != MarketDataProvider.Tencent
+                    || !ShouldCatchUpEtfPostCloseIntraday(security.StrategyCode, now, out _)))
             {
                 continue;
             }
@@ -505,7 +508,10 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
     {
         string key = MarketSources.TencentIntraday + ":" + security.StrategyCode;
         DateTimeOffset now = _nowProvider();
-        if (!ShouldRequestIntradayLive(security, now))
+        bool isLiveWindow = ShouldRequestIntradayLive(security, now);
+        bool isPostCloseCatchUp = !isLiveWindow
+                                  && ShouldCatchUpEtfPostCloseIntraday(security.StrategyCode, now, out _);
+        if (!isLiveWindow && !isPostCloseCatchUp)
         {
             ChartDataStatus cacheStatus = new(true, "非交易时段，使用最近真实分时缓存", true);
             if (!TryUsePersistedIntradayCache(security.StrategyCode, cacheStatus, now))
@@ -543,16 +549,37 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         {
             string tencentCode = ResolveTencentCode(security);
             EastMoneyIntradayFetchResult result = await _client.FetchTencentIntradayAsync(tencentCode, cancellationToken).ConfigureAwait(false);
+            ChartIntradayCacheEntry? existing = _cache.GetIntraday(security.StrategyCode);
+            bool incomingHasSameDayRealPoint = !isPostCloseCatchUp
+                                               || TryGetLatestStandardRealIntradayTime(result.Points, now.LocalDateTime.Date, out _);
+            bool keepExisting = isPostCloseCatchUp
+                                && (!incomingHasSameDayRealPoint
+                                    || HasLaterStandardRealIntradayPoint(existing?.Points, result.Points, now.LocalDateTime.Date));
+            IReadOnlyList<IntradayPoint> cachePoints = keepExisting
+                ? existing?.Points ?? Array.Empty<IntradayPoint>()
+                : result.Points;
+            string statusMessage = successStatusMessage;
+            if (isPostCloseCatchUp)
+            {
+                statusMessage = IsStandardIntradayCloseComplete(cachePoints, now.LocalDateTime.Date)
+                    ? "收盘后真实分时补齐缓存"
+                    : "收盘后真实分时补齐返回不完整，使用真实缓存+Quote降级";
+            }
+
             _cache.SaveIntraday(
                 security.StrategyCode,
-                result.Points,
-                new ChartDataStatus(true, successStatusMessage),
+                cachePoints,
+                new ChartDataStatus(cachePoints.Count > 0, statusMessage, isPostCloseCatchUp && cachePoints.Count > 0),
                 result.FetchedAt);
-            TryPersistIntradayPayload(
-                security,
-                result,
-                MarketSources.TencentIntraday,
-                MarketSources.TencentIntradayQuality);
+            if (!keepExisting && incomingHasSameDayRealPoint)
+            {
+                TryPersistIntradayPayload(
+                    security,
+                    result,
+                    MarketSources.TencentIntraday,
+                    MarketSources.TencentIntradayQuality);
+            }
+
             GetBreaker(key).RecordSuccess();
             _scheduler?.RecordSuccess(requestKind, security.StrategyCode, _nowProvider());
             return true;
@@ -658,6 +685,83 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             now);
         reason = completeness.Reason;
         return completeness.ShouldCatchUp;
+    }
+
+    private bool ShouldCatchUpEtfPostCloseIntraday(string strategyCode, DateTimeOffset now, out string reason)
+    {
+        reason = "cache is complete";
+        DateTime local = now.LocalDateTime;
+        if (local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+        {
+            reason = "non trading day";
+            return false;
+        }
+
+        if (local.TimeOfDay <= IntradayTradingTimeAxis.AfternoonClose)
+        {
+            reason = "A-share close has not passed";
+            return false;
+        }
+
+        ChartIntradayCacheEntry? cacheEntry = GetIntradayForSnapshot(strategyCode);
+        if (!TryGetLatestStandardRealIntradayTime(cacheEntry?.Points, local.Date, out DateTime latest))
+        {
+            reason = "missing same-day intraday cache";
+            return true;
+        }
+
+        if (latest.TimeOfDay < StandardIntradayCloseCompleteThreshold)
+        {
+            reason = "partial same-day intraday cache";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsStandardIntradayCloseComplete(IReadOnlyList<IntradayPoint> points, DateTime tradeDate)
+        => TryGetLatestStandardRealIntradayTime(points, tradeDate, out DateTime latest)
+           && latest.TimeOfDay >= StandardIntradayCloseCompleteThreshold;
+
+    private static bool HasLaterStandardRealIntradayPoint(
+        IReadOnlyList<IntradayPoint>? existing,
+        IReadOnlyList<IntradayPoint> incoming,
+        DateTime tradeDate)
+    {
+        return TryGetLatestStandardRealIntradayTime(existing, tradeDate, out DateTime existingLatest)
+               && (!TryGetLatestStandardRealIntradayTime(incoming, tradeDate, out DateTime incomingLatest)
+                   || existingLatest > incomingLatest);
+    }
+
+    private static bool TryGetLatestStandardRealIntradayTime(
+        IReadOnlyList<IntradayPoint>? points,
+        DateTime tradeDate,
+        out DateTime latest)
+    {
+        latest = default;
+        if (points is null)
+        {
+            return false;
+        }
+
+        foreach (IntradayPoint point in points)
+        {
+            if (point.Time.Date != tradeDate.Date
+                || point.Price <= 0
+                || point.IsQuoteTail
+                || point.IsQuoteCloseDisplayPoint
+                || !IntradayTradingTimeAxis.IsTradingTime(point.Time))
+            {
+                continue;
+            }
+
+            if (latest == default || point.Time > latest)
+            {
+                latest = point.Time;
+            }
+        }
+
+        return latest != default;
     }
 
     private void UseRouteCacheOrIntradayUnavailable(

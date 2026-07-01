@@ -161,7 +161,7 @@ public sealed class ChartDataSourceRoutingTests
     }
 
     [Fact]
-    public async Task EtfIntraday_AfterCloseUsesCacheOnlyAndDoesNotRequestTencentMinute()
+    public async Task EtfIntraday_AfterCloseMissingCacheRequestsTencentMinuteCatchUp()
     {
         var subscriptions = new ChartSubscriptionService();
         var cache = new ChartCache();
@@ -176,10 +176,65 @@ public sealed class ChartDataSourceRoutingTests
 
         await coordinator.RefreshAsync(Array.Empty<MarketQuoteRecord>(), Array.Empty<MarketQuoteRecord>(), CancellationToken.None);
 
-        Assert.Equal(0, client.GetTencentIntradayRequestCount("sz159941"));
+        Assert.Equal(1, client.GetTencentIntradayRequestCount("sz159941"));
         SecurityChartSnapshot? snapshot = cache.GetSnapshot("159941", SecurityChartPeriod.Intraday, SecurityChartSubPanel.Volume);
         Assert.NotNull(snapshot);
-        Assert.False(snapshot!.MainStatus.IsReady);
+        Assert.True(snapshot!.MainStatus.IsReady);
+    }
+
+    [Fact]
+    public async Task EtfIntraday_AfterClosePartialCacheStillRateLimitsRepeatedCatchUp()
+    {
+        var subscriptions = new ChartSubscriptionService();
+        var cache = new ChartCache();
+        var client = new CountingChartMarketDataClient();
+        DateTimeOffset now = DateTimeOffset.Parse("2026-06-24 17:13:00", CultureInfo.InvariantCulture);
+        var coordinator = new ChartDataRefreshCoordinator(
+            subscriptions,
+            cache,
+            client,
+            nowProvider: () => now);
+        ChartSecurityInfo security = ChartDataService.CreateSecurityInfo("159941", "ETF");
+        cache.SaveIntraday(
+            security.StrategyCode,
+            new[] { Intraday(new DateTime(2026, 6, 24, 14, 20, 0), 1.60) },
+            new ChartDataStatus(true, "real intraday cache", true),
+            DateTimeOffset.Parse("2026-06-24 14:20:00", CultureInfo.InvariantCulture));
+        subscriptions.Subscribe(security, SecurityChartPeriod.Intraday, SecurityChartSubPanel.Volume);
+
+        await coordinator.RefreshAsync(Array.Empty<MarketQuoteRecord>(), Array.Empty<MarketQuoteRecord>(), CancellationToken.None);
+        now = now.AddSeconds(5);
+        await coordinator.RefreshAsync(Array.Empty<MarketQuoteRecord>(), Array.Empty<MarketQuoteRecord>(), CancellationToken.None);
+
+        Assert.Equal(1, client.GetTencentIntradayRequestCount("sz159941"));
+    }
+
+    [Fact]
+    public async Task EtfIntraday_AfterCloseCompleteCacheDoesNotRequestTencentMinute()
+    {
+        var subscriptions = new ChartSubscriptionService();
+        var cache = new ChartCache();
+        var client = new CountingChartMarketDataClient();
+        var coordinator = new ChartDataRefreshCoordinator(
+            subscriptions,
+            cache,
+            client,
+            nowProvider: () => DateTimeOffset.Parse("2026-06-24 15:08:00", CultureInfo.InvariantCulture));
+        ChartSecurityInfo security = ChartDataService.CreateSecurityInfo("159941", "ETF");
+        cache.SaveIntraday(
+            security.StrategyCode,
+            new[]
+            {
+                Intraday(new DateTime(2026, 6, 24, 14, 57, 0), 1.60),
+                Intraday(new DateTime(2026, 6, 24, 14, 58, 0), 1.61)
+            },
+            new ChartDataStatus(true, "real intraday cache", true),
+            DateTimeOffset.Parse("2026-06-24 14:58:00", CultureInfo.InvariantCulture));
+        subscriptions.Subscribe(security, SecurityChartPeriod.Intraday, SecurityChartSubPanel.Volume);
+
+        await coordinator.RefreshAsync(Array.Empty<MarketQuoteRecord>(), Array.Empty<MarketQuoteRecord>(), CancellationToken.None);
+
+        Assert.Equal(0, client.GetTencentIntradayRequestCount("sz159941"));
     }
 
     [Fact]
@@ -342,4 +397,12 @@ public sealed class ChartDataSourceRoutingTests
             .ToArray();
         return "{\"data\":{\"klines\":[" + string.Join(",", lines) + "]}}";
     }
+
+    private static IntradayPoint Intraday(DateTime time, double price)
+        => new()
+        {
+            Time = time,
+            Price = price,
+            Volume = 100
+        };
 }
