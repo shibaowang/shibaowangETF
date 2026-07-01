@@ -10,6 +10,17 @@
 - This lock covers ETFs `159509`, `159660`, `159941`, `513100`, `513300`, `159501`, `159513`, and `159659`. Index paths remain under their existing locks: `251.NDXTMC` still does not fabricate volume, and `100.NDX100` uses only real source volume.
 - This behavior does not change TradeLog, order drafts, account replay, holdings replay, strategy decisions, alerts, market routing, or main-window manual refresh behavior.
 
+## 2026-07-01 LOCK-INDEX-US-OPEN-FIRST-QUOTE-001 US-open index first quote lock
+
+- Manual acceptance confirmed that after the US market opened at 21:30 Beijing time during daylight-saving time, `251.NDXTMC` and `100.NDX100` index quote data refreshed promptly.
+- This behavior is locked as part of the accepted `IndexQuote` lane and `GlobalMarketRequestScheduler` scheduling contract.
+- Index quote data must come from the real EastMoney index quote source. Simulated index data, fake fallback data, fabricated price, fabricated change percent, and fabricated volume are forbidden.
+- `251.NDXTMC` continues to follow the strict no-fake-volume rule; `100.NDX100` may display only real source volume.
+- The US-open first quote refresh must use existing global scheduling, cooldown, and anti-IP-ban throttling. It must not bypass `GlobalMarketRequestScheduler`, must not retry at high frequency, and must not depend on the system proxy.
+- If the real source fails, status or runtime logging must record the failure instead of silently pretending success.
+- The accepted behavior must remain compatible with Beijing-date cross-day sessions and future daylight-saving/standard-time handling. Do not hardcode Beijing `21:30` as the only year-round open time.
+- This lock does not change ETF Tencent chart paths, index intraday catch-up, K-lines, drawdown charts, TradeLog, order drafts, account replay, holdings replay, strategy decisions, alerts, or main-window manual refresh behavior.
+
 ## 2026-06-30 TASK-INDEX-INTRADAY-MACD-VOLUME-030 index intraday MACD and volume closeout
 
 - `251.NDXTMC` and `100.NDX100` intraday MACD now follows the full `09:30-16:00 ET` index display sequence. The ETF intraday display limit is still applied only to ETF snapshots, not to index MACD.

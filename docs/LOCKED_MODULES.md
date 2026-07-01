@@ -400,6 +400,38 @@ Protection tests:
 - `order_draft_state` is not changed.
 - No main-window manual refresh button is added.
 
+### 1.19 LOCK-INDEX-US-OPEN-FIRST-QUOTE-001：美股开盘指数数据首刷锁定
+
+Accepted behavior:
+- During the US market open window, the app must be able to fetch index quote data immediately through the accepted index quote lane.
+- Manual acceptance confirmed that after the US market opened at 21:30 Beijing time, index data refreshed promptly.
+- This lock belongs to the index quote lane and global market request scheduling behavior.
+- Covered indexes are `251.NDXTMC` and `100.NDX100`.
+- Index quote data must come from a real market source, currently the EastMoney index quote source.
+- Simulated index data is forbidden.
+- Fake fallback data is forbidden.
+- Fabricating index price, change percent, or volume for display movement is forbidden.
+- `251.NDXTMC` must continue to follow the strict no-fake-volume rule.
+- The US-open first quote refresh must use the existing global scheduler and anti-IP-ban throttling.
+- Bypassing `GlobalMarketRequestScheduler` is forbidden.
+- High-frequency repeated requests are forbidden.
+- Depending on the system proxy is forbidden.
+- After a successful real fetch, `market_source_status` should update normally.
+- If the real source fails, status or runtime logging must record the failure; the app must not silently pretend success.
+- Index first quote refresh must not write TradeLog.
+- Index first quote refresh must not generate order fills.
+- Index first quote refresh must not modify account replay, holdings replay, or strategy fact sources.
+- Index first quote refresh must not add a main-window manual refresh button.
+- Index first quote refresh must remain compatible with Beijing-date cross-day scenarios.
+- Future daylight-saving-time or standard-time handling must follow US trading-session or existing trading-calendar rules. Do not hardcode Beijing `21:30` as the only year-round open time; the current accepted manual verification is the daylight-saving Beijing `21:30` open.
+
+Current test baseline:
+- `806/806`
+
+Protection notes:
+- This is a documentation lock. It should not add tests and should not change the test count.
+- Existing scheduler tests protect the index quote lane separation, US-open stale-throttle release, failure cooldown retention, and low-frequency intraday/history lanes.
+
 ## 2. 后续任务解锁流程
 
 后续任何 Codex 任务如果需要修改锁定模块，必须先输出：
