@@ -1237,11 +1237,18 @@ public partial class MainWindow : Window
 
         bool incomplete = replay.ReplayStatus == "估值不完整" || !replay.MarketValueComplete;
         TotalAssetsText.Text = FormatNullableMoney(replay.TotalAssets);
-        DailyPnlMetric dailyPnl = AccountTrendMetrics.CalculateDailyPnl(
-            _accountReplaySnapshots,
-            _tradeLogs,
-            realDailyPnl: null,
+        double? realDailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            _replayPositions,
+            _replayOtcPositions,
+            _marketQuotes,
             DateTime.Now);
+        DailyPnlMetric dailyPnl = !incomplete && realDailyPnl.HasValue
+            ? AccountTrendMetrics.CalculateDailyPnl(
+                _accountReplaySnapshots,
+                _tradeLogs,
+                realDailyPnl,
+                DateTime.Now)
+            : DailyPnlMetric.Empty;
 
         if (incomplete && !dailyPnl.Amount.HasValue)
         {
@@ -2212,9 +2219,11 @@ public partial class MainWindow : Window
             double? premiumRate = EtfDecisionTableMetrics.CalculatePremiumRate(etfQuote);
             double principal = _tradeLogs.Count > 0 ? _accountReplayState?.Principal ?? 0 : _accountState?.Principal ?? 0;
             bool replayQuoteComplete = replayPositions.Length > 0 && replayPositions.All(position => position.MarketValue.HasValue);
-            double? dailyPnl = replayPositions.Length > 0 && replayPositions.All(position => position.DailyPnl.HasValue)
-                ? replayPositions.Sum(position => position.DailyPnl!.Value)
-                : null;
+            double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+                replayPositions,
+                replayOtcPositions,
+                _marketQuotes,
+                DateTime.Now);
             double? knownMarketValue = replayQuoteComplete
                 ? replayPositions.Sum(position => position.MarketValue!.Value)
                 : null;
