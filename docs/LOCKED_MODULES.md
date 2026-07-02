@@ -438,6 +438,14 @@ Locked commit:
 - `b28ec48347b9972b0e298407cbe450974d59ea47`
 - `Fix daily PnL Beijing natural day basis`
 
+Superseding clarification:
+- This lock keeps the Beijing natural-day boundary, but its PnL inclusion rules are corrected and supplemented by `LOCK-PNL-VALUATION-DATE-FILTER-001`.
+- It must not be interpreted as excluding all OTC or fund daily PnL.
+- It must not forbid broker-compatible exchange ETF daily PnL display such as `(current real price - previous close) * current holding quantity`.
+- It must not force ETF table `当日盈亏` to display `--` only because no single-symbol `00:00` baseline exists.
+- It must not exclude a fund/NAV daily PnL update whose real valuation update time is inside today's Beijing natural-day interval.
+- Yesterday's OTC/NAV update is not counted today; today's OTC/NAV update is counted today; tomorrow must not repeat today's update.
+
 Accepted behavior:
 - `今日盈亏` and `当日盈亏` must use the Beijing natural-day accounting boundary.
 - The unified interval is the half-open Beijing-time range `[today 00:00:00, tomorrow 00:00:00)`.
@@ -489,6 +497,62 @@ Protection tests:
 - Quote last close, quote change value, and quote change percent are not used as account/position natural-day PnL.
 - TradeLog is not written.
 - `order_draft_state` is not changed.
+- No main-window manual refresh button is added.
+
+### 1.21 LOCK-PNL-VALUATION-DATE-FILTER-001：今日/当日盈亏按估值更新时间自然日过滤锁定
+
+Locked commit:
+- `6ad6705621f48739849302b47a2fea3cbac3f137`
+- `Fix daily PnL valuation date filtering`
+
+Accepted behavior:
+- `今日盈亏` and `当日盈亏` remain based on the Beijing natural-day interval.
+- The interval is the half-open Beijing-time range `[today 00:00:00, tomorrow 00:00:00)`.
+- Today `00:00:00` is included.
+- Today `23:59:59` is included.
+- Tomorrow `00:00:00` is excluded.
+- Yesterday `23:59:59` is excluded.
+- A holding row `daily_pnl` may be included only when the matched quote/NAV valuation update time is inside today's Beijing natural-day interval.
+- OTC and fund daily PnL belongs to account `今日盈亏` / `当日盈亏`; do not exclude it by asset type.
+- Yesterday `20:00` OTC/NAV updates must not be counted in today's PnL.
+- Today `20:00` OTC/NAV updates must be counted in today's PnL.
+- Tomorrow must not repeat today's `20:00` OTC/NAV update.
+- Exchange ETF `daily_pnl` is counted after today's real quote update.
+- Exchange ETF `daily_pnl` may keep the broker-compatible display basis `(current real price - previous close) * current holding quantity`.
+- The ETF decision table `当日盈亏` must not show `--` for all rows only because there is no single-symbol `00:00` snapshot baseline.
+- Do not revert to excluding all OTC/fund PnL.
+- Do not revert to hiding exchange ETF daily PnL when no single-symbol `00:00` baseline exists.
+- Do not use `calculated_at` to treat an old NAV valuation as today's update.
+- SINA_FUND valuation matching must prefer `market_quote_cache.received_at`.
+- `quote_time` is only a fallback when `received_at` is unavailable.
+- If no reliable valuation update time exists, the daily PnL value must not be included.
+- Duplicate records for the same `strategy_code|actual_code` across `position_replay_state` and `otc_position_replay_state` must be de-duplicated.
+- This lock must not change TradeLog, order drafts, strategy buy/sell rules, Sina fund source, OTCMap, or OtcPositionReplayState core replay behavior.
+- This lock must not add a main-window manual refresh button.
+
+Implementation notes:
+- The top-card `今日盈亏` aggregates eligible `position_replay_state` and `otc_position_replay_state` daily PnL values.
+- Eligibility is decided by matched quote/NAV update time, with `received_at` first and `quote_time` fallback.
+- The ETF decision table `当日盈亏` aggregates the current strategy row's exchange ETF daily PnL plus eligible off-exchange substitute daily PnL.
+- Off-exchange substitute matching uses the actual fund code to match SINA_FUND quote/NAV records.
+- `calculated_at` is not used as the valuation-day inclusion timestamp.
+- `AccountReplayService.cs`, the Sina fund source, OTCMap, OtcPositionReplayState, TradeLog, order drafts, and strategy buy/sell logic remain unchanged by this lock.
+
+Current test baseline:
+- `822/822`
+
+Protection tests:
+- ETF quote `received_at` inside today includes ETF `daily_pnl` in top-card and table PnL.
+- OTC/SINA_FUND update from yesterday `20:00` is excluded from today's PnL.
+- OTC/SINA_FUND update from today `20:00` is included in top-card and row PnL.
+- Tomorrow does not repeat today's OTC/SINA_FUND update.
+- Off-exchange positions match SINA_FUND quote/NAV by actual fund code.
+- SINA_FUND matching prefers `received_at` before `quote_time`.
+- `calculated_at` does not make an old NAV valuation count as today.
+- Missing valuation update time excludes that daily PnL value.
+- TradeLog is not written.
+- `order_draft_state` is not changed.
+- OTCMap, OtcPositionReplayState, Sina fund source, and strategy buy/sell rules are not changed.
 - No main-window manual refresh button is added.
 
 ## 2. 后续任务解锁流程
