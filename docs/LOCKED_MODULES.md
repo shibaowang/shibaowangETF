@@ -432,40 +432,61 @@ Protection notes:
 - This is a documentation lock. It should not add tests and should not change the test count.
 - Existing scheduler tests protect the index quote lane separation, US-open stale-throttle release, failure cooldown retention, and low-frequency intraday/history lanes.
 
-### 1.20 LOCK-PNL-BEIJING-NATURAL-DAY-001：今日/当日盈亏自然日口径锁定
+### 1.20 LOCK-PNL-BEIJING-NATURAL-DAY-001：今日/当日盈亏北京时间自然日口径锁定
+
+Locked commit:
+- `b28ec48347b9972b0e298407cbe450974d59ea47`
+- `Fix daily PnL Beijing natural day basis`
 
 Accepted behavior:
-- `今日盈亏` and `当日盈亏` use the Beijing natural-day accounting boundary.
-- The unified interval is `[today 00:00:00, tomorrow 00:00:00)` in Beijing time.
-- Records at `00:00:00` are included.
-- Records at the next day `00:00:00` are excluded.
-- `23:59:59` remains in the current Beijing natural day.
-- US-market quote updates after Beijing `21:30` and before `24:00` belong to the same Beijing day.
-- US-market quote updates after Beijing `00:00` belong to the new Beijing day, not the previous US trading session.
-- A-share post-close quote or intraday catch-up after `15:00` still belongs to the same Beijing natural day before `24:00`.
-- When no `00:00` snapshot exists, the first real snapshot inside the Beijing natural-day interval may be used as the safe day baseline.
-- If the day has insufficient real replay snapshots, the UI must keep the existing empty/safe display instead of inventing PnL.
-- Funding cash flow inside the same Beijing natural day must be excluded from total-assets fallback PnL so deposits are not treated as profit and withdrawals are not treated as loss.
-- Market-source `change_percent`, `change_value`, or `price - last_close` must not directly replace account or position daily PnL.
-- Position-level `daily_pnl` must not be synthesized from quote last close when no Beijing natural-day holding baseline exists.
+- `今日盈亏` and `当日盈亏` must use the Beijing natural-day accounting boundary.
+- The unified interval is the half-open Beijing-time range `[today 00:00:00, tomorrow 00:00:00)`.
+- Today `00:00:00` is included in today.
+- Today `23:59:59` is included in today.
+- Tomorrow `00:00:00` is not included in today.
+- Yesterday `23:59:59` is not included in today.
+- A-share trading-day boundaries must not replace this natural-day basis.
+- US trading-day boundaries must not replace this natural-day basis.
+- Market-source `当日涨跌`, `change_value`, `change_percent`, or equivalent quote-day fields must not directly replace account or holding daily PnL.
+- `current price - previous close` must not directly replace account or holding daily PnL.
+- The top-card `今日盈亏` must be calculated from account replay snapshots inside the Beijing natural-day range.
+- If the calculation falls back to `total_assets`, same-day deposits and withdrawals must be excluded so cash flow is not treated as investment PnL.
+- Deposits and withdrawals must not be counted as daily investment profit or loss.
+- Buys, sells, fees, dividends, and other same-day items continue to follow the existing account replay rules.
+- When no `00:00` snapshot exists, the first real snapshot inside the Beijing natural-day interval may be used as the safe degraded baseline.
+- If the day has no usable snapshot, the app must not fabricate daily PnL.
+- Position-level `DailyPnl` should remain empty or safe when no natural-day holding baseline exists; it must not be miscalculated from quote-day movement.
+- US-market data after Beijing `21:30` belongs to the same Beijing natural day.
+- US-market data after Beijing `00:00` belongs to the new Beijing natural day, not the previous US trading session.
+- A-share post-`15:00` close quote or intraday catch-up still belongs to the same Beijing natural day before midnight.
 - TradeLog remains the accounting fact source.
 - This lock must not write TradeLog automatically.
 - This lock must not change order-draft execution boundaries.
 - This lock must not change strategy buy/sell rules.
 - This lock must not add a main-window manual refresh button.
 
+Implementation notes:
+- `BeijingNaturalDayRangeProvider` provides the shared natural-day range.
+- `StartInclusive = 今日北京时间 00:00:00`.
+- `EndExclusive = 明日北京时间 00:00:00`.
+- Code must use `< 明日 00:00:00`; do not use `<= 23:59:59` as a database or timestamp upper bound.
+- The top-card `今日盈亏` no longer prioritizes `position_replay_state.daily_pnl` aggregation.
+- Quote-derived `daily_pnl` from `current price - previous close` is a quote trading-day basis and must not replace account `今日盈亏`.
+- Account/holding daily PnL should follow Beijing natural-day replay changes, not market-source quote-day movement.
+
 Current test baseline:
-- `806/806` before this lock; natural-day PnL tests are expected to increase the count after implementation.
+- `812/812`
 
 Protection tests:
 - `00:00:00` is included in the current Beijing natural day.
 - Next-day `00:00:00` is excluded from the previous Beijing natural day.
 - `23:59:59` is included in the current Beijing natural day.
+- Yesterday `23:59:59` is excluded from the current Beijing natural day.
 - US-market `21:30` data is counted in the current Beijing day.
 - US-market cross-`00:00` data is counted in the new Beijing day.
 - A-share post-`15:00` quote/catch-up remains in the current Beijing day.
 - Deposits and withdrawals do not amplify daily PnL.
-- Quote last close/change percent is not used as account/position natural-day PnL.
+- Quote last close, quote change value, and quote change percent are not used as account/position natural-day PnL.
 - TradeLog is not written.
 - `order_draft_state` is not changed.
 - No main-window manual refresh button is added.
