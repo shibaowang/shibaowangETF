@@ -26,7 +26,7 @@ public sealed class AccountReplayService
     {
         var result = new AccountReplayResult();
         string calculatedAt = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss");
-        DateTime localToday = (today ?? DateTime.Now).Date;
+        BeijingNaturalDayRange todayRange = BeijingNaturalDayRangeProvider.FromNow(today ?? DateTime.Now);
 
         List<ReplayRow> rows = BuildRows(tradeLogs, result.Errors);
         result.Account.CalculatedAt = calculatedAt;
@@ -115,7 +115,7 @@ public sealed class AccountReplayService
                         : -(record.Amount + record.Fee);
                     position.Quantity += record.Quantity;
                     position.CostAmount += record.Amount;
-                    if (row.Time.Date == localToday)
+                    if (todayRange.Contains(row.Time))
                     {
                         position.TodayBuyQuantity += record.Quantity;
                         position.TodayBuyAmount += record.Amount;
@@ -421,9 +421,7 @@ public sealed class AccountReplayService
             double averageCost = position.Quantity > QuantityEpsilon ? position.CostAmount / position.Quantity : 0;
             double? marketPrice = quote?.Price;
             double? marketValue = marketPrice.HasValue ? position.Quantity * marketPrice.Value : null;
-            double? dailyPnl = marketPrice.HasValue && quote?.LastClose is double lastClose
-                ? (marketPrice.Value - lastClose) * position.Quantity
-                : null;
+            double? dailyPnl = null;
             double? unrealized = marketValue.HasValue ? marketValue.Value - position.CostAmount : null;
             double? totalPnl = unrealized.HasValue ? unrealized.Value + position.RealizedPnl : null;
             double? returnRate = unrealized.HasValue && position.CostAmount > CostEpsilon

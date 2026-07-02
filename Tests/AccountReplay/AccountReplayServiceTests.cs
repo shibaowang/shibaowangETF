@@ -387,6 +387,55 @@ public class AccountReplayServiceTests
         Assert.NotEqual(1943.80, position.CostAmount, 2);
     }
 
+    [Fact]
+    public void Replay_TodayBuyUsesBeijingNaturalDayHalfOpenRange()
+    {
+        var service = new AccountReplayService();
+        TradeLogRecord[] records =
+        {
+            Log("2026-06-13 23:59:59", "159941", "买入", actualCode: "159941", quantity: 10, amount: 10, source: "场内ETF"),
+            Log("2026-06-14 00:00:00", "159941", "买入", actualCode: "159941", quantity: 20, amount: 20, source: "场内ETF"),
+            Log("2026-06-14 15:03:39", "159941", "买入", actualCode: "159941", quantity: 30, amount: 30, source: "场内ETF"),
+            Log("2026-06-15 00:00:00", "159941", "买入", actualCode: "159941", quantity: 40, amount: 40, source: "场内ETF")
+        };
+
+        AccountReplayResult result = service.Replay(records, Array.Empty<MarketQuoteRecord>(), new DateTime(2026, 6, 14, 21, 30, 0));
+
+        PositionReplayStateRecord position = Assert.Single(result.Positions);
+        Assert.Equal(50, position.TodayBuyQuantity, 4);
+        Assert.Equal(50, position.TodayBuyAmount, 2);
+    }
+
+    [Fact]
+    public void Replay_DailyPnlDoesNotUseQuoteLastCloseAsNaturalDayPnl()
+    {
+        var service = new AccountReplayService();
+        TradeLogRecord[] records =
+        {
+            Log("2026-06-14 09:30:00", "159941", "买入", actualCode: "159941", quantity: 1000, amount: 1000, source: "场内ETF")
+        };
+        MarketQuoteRecord[] quotes =
+        {
+            new()
+            {
+                Symbol = "159941",
+                MarketType = "ETF",
+                Source = "TENCENT_QT",
+                Price = 1.2,
+                LastClose = 1.0,
+                ChangePercent = 20,
+                QuoteTime = "2026-06-14 15:00:00"
+            }
+        };
+
+        AccountReplayResult result = service.Replay(records, quotes, new DateTime(2026, 6, 14, 15, 1, 0));
+
+        PositionReplayStateRecord position = Assert.Single(result.Positions);
+        Assert.Null(position.DailyPnl);
+        Assert.Equal(1200, position.MarketValue!.Value, 2);
+        Assert.Equal(200, position.UnrealizedPnl!.Value, 2);
+    }
+
     private static ReplaySnapshot ReplayThroughTempDb(params TradeLogRecord[] records)
     {
         string databasePath = Path.Combine(Path.GetTempPath(), $"cross_etf_account_replay_{Guid.NewGuid():N}.db");

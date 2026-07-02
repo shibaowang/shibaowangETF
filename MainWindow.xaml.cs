@@ -1237,11 +1237,10 @@ public partial class MainWindow : Window
 
         bool incomplete = replay.ReplayStatus == "估值不完整" || !replay.MarketValueComplete;
         TotalAssetsText.Text = FormatNullableMoney(replay.TotalAssets);
-        double? realDailyPnl = SumNullable(_replayPositions.Select(position => position.DailyPnl));
         DailyPnlMetric dailyPnl = AccountTrendMetrics.CalculateDailyPnl(
             _accountReplaySnapshots,
             _tradeLogs,
-            incomplete ? null : realDailyPnl,
+            realDailyPnl: null,
             DateTime.Now);
 
         if (incomplete && !dailyPnl.Amount.HasValue)

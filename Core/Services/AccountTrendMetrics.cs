@@ -12,14 +12,9 @@ public static class AccountTrendMetrics
         double? realDailyPnl,
         DateTime today)
     {
-        AccountReplaySnapshotRecord? latest = LatestSnapshot(snapshots);
-        AccountReplaySnapshotRecord? firstToday = FirstSnapshotOfDay(snapshots, today.Date);
-
-        if (HasFiniteValue(realDailyPnl))
-        {
-            double amount = realDailyPnl!.Value;
-            return new DailyPnlMetric(amount, CalculateRatio(amount, firstToday?.TotalAssets, latest?.TotalAssets));
-        }
+        BeijingNaturalDayRange dayRange = BeijingNaturalDayRangeProvider.FromNow(today);
+        AccountReplaySnapshotRecord? latest = LatestSnapshot(snapshots, dayRange);
+        AccountReplaySnapshotRecord? firstToday = FirstSnapshotOfDay(snapshots, dayRange);
 
         if (latest is null || firstToday is null || latest.Id == firstToday.Id)
         {
@@ -34,7 +29,7 @@ public static class AccountTrendMetrics
 
         if (HasFiniteValue(latest.TotalAssets) && HasFiniteValue(firstToday.TotalAssets))
         {
-            double externalCashFlow = CalculateExternalFundingCashFlow(tradeLogs, today.Date);
+            double externalCashFlow = CalculateExternalFundingCashFlow(tradeLogs, dayRange);
             double amount = latest.TotalAssets!.Value - firstToday.TotalAssets!.Value - externalCashFlow;
             return new DailyPnlMetric(amount, CalculateRatio(amount, firstToday.TotalAssets, latest.TotalAssets));
         }
@@ -59,11 +54,14 @@ public static class AccountTrendMetrics
     }
 
     public static double CalculateExternalFundingCashFlow(IEnumerable<TradeLogRecord> tradeLogs, DateTime day)
+        => CalculateExternalFundingCashFlow(tradeLogs, BeijingNaturalDayRangeProvider.ForBeijingDate(day));
+
+    public static double CalculateExternalFundingCashFlow(IEnumerable<TradeLogRecord> tradeLogs, BeijingNaturalDayRange dayRange)
     {
         double total = 0;
         foreach (TradeLogRecord record in tradeLogs)
         {
-            if (!DateTime.TryParse(record.Time, out DateTime time) || time.Date != day)
+            if (!DateTime.TryParse(record.Time, out DateTime time) || !dayRange.Contains(time))
             {
                 continue;
             }
@@ -86,8 +84,9 @@ public static class AccountTrendMetrics
         return total;
     }
 
-    private static AccountReplaySnapshotRecord? LatestSnapshot(IEnumerable<AccountReplaySnapshotRecord> snapshots)
+    private static AccountReplaySnapshotRecord? LatestSnapshot(IEnumerable<AccountReplaySnapshotRecord> snapshots, BeijingNaturalDayRange dayRange)
         => snapshots
+            .Where(snapshot => dayRange.Contains(ParseSortTime(snapshot.CreatedAt)))
             .Where(snapshot => HasFiniteValue(snapshot.TotalAssets)
                                || HasFiniteValue(snapshot.TotalPnl)
                                || HasFiniteValue(snapshot.TotalUnrealizedPnl))
@@ -95,9 +94,9 @@ public static class AccountTrendMetrics
             .ThenBy(snapshot => snapshot.Id)
             .LastOrDefault();
 
-    private static AccountReplaySnapshotRecord? FirstSnapshotOfDay(IEnumerable<AccountReplaySnapshotRecord> snapshots, DateTime day)
+    private static AccountReplaySnapshotRecord? FirstSnapshotOfDay(IEnumerable<AccountReplaySnapshotRecord> snapshots, BeijingNaturalDayRange dayRange)
         => snapshots
-            .Where(snapshot => ParseSortTime(snapshot.CreatedAt).Date == day)
+            .Where(snapshot => dayRange.Contains(ParseSortTime(snapshot.CreatedAt)))
             .OrderBy(snapshot => ParseSortTime(snapshot.CreatedAt))
             .ThenBy(snapshot => snapshot.Id)
             .FirstOrDefault();

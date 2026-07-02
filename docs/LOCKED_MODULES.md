@@ -432,6 +432,44 @@ Protection notes:
 - This is a documentation lock. It should not add tests and should not change the test count.
 - Existing scheduler tests protect the index quote lane separation, US-open stale-throttle release, failure cooldown retention, and low-frequency intraday/history lanes.
 
+### 1.20 LOCK-PNL-BEIJING-NATURAL-DAY-001：今日/当日盈亏自然日口径锁定
+
+Accepted behavior:
+- `今日盈亏` and `当日盈亏` use the Beijing natural-day accounting boundary.
+- The unified interval is `[today 00:00:00, tomorrow 00:00:00)` in Beijing time.
+- Records at `00:00:00` are included.
+- Records at the next day `00:00:00` are excluded.
+- `23:59:59` remains in the current Beijing natural day.
+- US-market quote updates after Beijing `21:30` and before `24:00` belong to the same Beijing day.
+- US-market quote updates after Beijing `00:00` belong to the new Beijing day, not the previous US trading session.
+- A-share post-close quote or intraday catch-up after `15:00` still belongs to the same Beijing natural day before `24:00`.
+- When no `00:00` snapshot exists, the first real snapshot inside the Beijing natural-day interval may be used as the safe day baseline.
+- If the day has insufficient real replay snapshots, the UI must keep the existing empty/safe display instead of inventing PnL.
+- Funding cash flow inside the same Beijing natural day must be excluded from total-assets fallback PnL so deposits are not treated as profit and withdrawals are not treated as loss.
+- Market-source `change_percent`, `change_value`, or `price - last_close` must not directly replace account or position daily PnL.
+- Position-level `daily_pnl` must not be synthesized from quote last close when no Beijing natural-day holding baseline exists.
+- TradeLog remains the accounting fact source.
+- This lock must not write TradeLog automatically.
+- This lock must not change order-draft execution boundaries.
+- This lock must not change strategy buy/sell rules.
+- This lock must not add a main-window manual refresh button.
+
+Current test baseline:
+- `806/806` before this lock; natural-day PnL tests are expected to increase the count after implementation.
+
+Protection tests:
+- `00:00:00` is included in the current Beijing natural day.
+- Next-day `00:00:00` is excluded from the previous Beijing natural day.
+- `23:59:59` is included in the current Beijing natural day.
+- US-market `21:30` data is counted in the current Beijing day.
+- US-market cross-`00:00` data is counted in the new Beijing day.
+- A-share post-`15:00` quote/catch-up remains in the current Beijing day.
+- Deposits and withdrawals do not amplify daily PnL.
+- Quote last close/change percent is not used as account/position natural-day PnL.
+- TradeLog is not written.
+- `order_draft_state` is not changed.
+- No main-window manual refresh button is added.
+
 ## 2. 后续任务解锁流程
 
 后续任何 Codex 任务如果需要修改锁定模块，必须先输出：
