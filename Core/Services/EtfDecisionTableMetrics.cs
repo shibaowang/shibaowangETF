@@ -5,6 +5,7 @@ namespace CrossETF.Terminal.UiShell.Reference.Core.Services;
 public static class EtfDecisionTableMetrics
 {
     private const string OtcReplacementSource = "\u573a\u5916\u66ff\u4ee3";
+    private static readonly TimeSpan SinaFundEveningWindowStart = TimeSpan.FromHours(18);
 
     public static double? CalculatePremiumRate(MarketQuoteRecord? quote)
     {
@@ -73,27 +74,28 @@ public static class EtfDecisionTableMetrics
         IEnumerable<MarketQuoteRecord> quotes,
         DateTime now)
     {
-        DateTime startInclusive = now.Date;
-        DateTime endExclusive = startInclusive.AddDays(1);
+        (DateTime startInclusive, DateTime endExclusive) = GetNaturalDayRange(now);
+        DateTime? latestEveningSinaFundQuoteDate = ResolveLatestEveningSinaFundQuoteDate(quotes, startInclusive, endExclusive);
         bool includedAny = false;
         double total = 0;
         var includedOtcKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (PositionReplayStateRecord position in replayPositions)
         {
-            if (!HasFiniteValue(position.DailyPnl))
+            MarketQuoteRecord? quote = FindValuationQuote(position, quotes);
+            if (!IsValuationUpdatedInRange(quote, startInclusive, endExclusive, latestEveningSinaFundQuoteDate))
             {
                 continue;
             }
 
-            MarketQuoteRecord? quote = FindValuationQuote(position, quotes);
-            if (!IsValuationUpdatedInRange(quote, startInclusive, endExclusive))
+            double? dailyPnl = ResolveDailyPnl(position.DailyPnl, position.Quantity, quote);
+            if (!HasFiniteValue(dailyPnl))
             {
                 continue;
             }
 
             includedAny = true;
-            total += position.DailyPnl!.Value;
+            total += dailyPnl!.Value;
             if (IsOtcReplacementPosition(position))
             {
                 includedOtcKeys.Add(BuildPositionKey(position.StrategyCode, position.ActualCode));
@@ -102,31 +104,142 @@ public static class EtfDecisionTableMetrics
 
         foreach (OtcPositionReplayStateRecord position in otcPositions)
         {
-            if (!HasFiniteValue(position.DailyPnl)
-                || !includedOtcKeys.Add(BuildPositionKey(position.StrategyCode, position.ActualCode)))
+            if (!includedOtcKeys.Add(BuildPositionKey(position.StrategyCode, position.ActualCode)))
             {
                 continue;
             }
 
             MarketQuoteRecord? quote = FindOtcValuationQuote(position.ActualCode, quotes);
-            if (!IsValuationUpdatedInRange(quote, startInclusive, endExclusive))
+            if (!IsValuationUpdatedInRange(quote, startInclusive, endExclusive, latestEveningSinaFundQuoteDate))
+            {
+                continue;
+            }
+
+            double? dailyPnl = ResolveDailyPnl(position.DailyPnl, position.Quantity, quote);
+            if (!HasFiniteValue(dailyPnl))
             {
                 continue;
             }
 
             includedAny = true;
-            total += position.DailyPnl!.Value;
+            total += dailyPnl!.Value;
         }
 
         return includedAny ? total : null;
     }
 
     public static bool IsValuationUpdatedInRange(MarketQuoteRecord? quote, DateTime startInclusive, DateTime endExclusive)
+        => IsValuationUpdatedInRange(quote, startInclusive, endExclusive, latestEveningSinaFundQuoteDate: null);
+
+    public static (DateTime StartInclusive, DateTime EndExclusive) GetNaturalDayRange(DateTime now)
     {
-        DateTime? valuationTime = ParseTime(quote?.ReceivedAt) ?? ParseTime(quote?.QuoteTime);
+        DateTime startInclusive = now.Date;
+        return (startInclusive, startInclusive.AddDays(1));
+    }
+
+    public static bool IsPnLEventInNaturalDay(DateTime eventTime, DateTime now)
+    {
+        (DateTime startInclusive, DateTime endExclusive) = GetNaturalDayRange(now);
+        return eventTime >= startInclusive && eventTime < endExclusive;
+    }
+
+    private static bool IsValuationUpdatedInRange(
+        MarketQuoteRecord? quote,
+        DateTime startInclusive,
+        DateTime endExclusive,
+        DateTime? latestEveningSinaFundQuoteDate)
+    {
+        if (quote is null)
+        {
+            return false;
+        }
+
+        if (IsSinaFundQuote(quote))
+        {
+            return IsSinaFundValuationUpdatedInRange(
+                quote,
+                startInclusive,
+                endExclusive,
+                latestEveningSinaFundQuoteDate);
+        }
+
+        DateTime? valuationTime = ResolveValuationTime(quote);
         return valuationTime.HasValue
                && valuationTime.Value >= startInclusive
                && valuationTime.Value < endExclusive;
+    }
+
+    private static bool IsSinaFundValuationUpdatedInRange(
+        MarketQuoteRecord quote,
+        DateTime startInclusive,
+        DateTime endExclusive,
+        DateTime? latestEveningSinaFundQuoteDate)
+    {
+        DateTime? quoteTime = ParseTime(quote.QuoteTime);
+        if (!quoteTime.HasValue)
+        {
+            return false;
+        }
+
+        DateTime quoteDate = quoteTime.Value.Date;
+        if (quoteDate == startInclusive.Date)
+        {
+            return true;
+        }
+
+        DateTime? receivedAt = ParseTime(quote.ReceivedAt);
+        if (!receivedAt.HasValue || receivedAt.Value < startInclusive || receivedAt.Value >= endExclusive)
+        {
+            return false;
+        }
+
+        DateTime eveningWindowStart = startInclusive.Date.Add(SinaFundEveningWindowStart);
+        if (receivedAt.Value < eveningWindowStart)
+        {
+            return false;
+        }
+
+        return latestEveningSinaFundQuoteDate.HasValue
+               && quoteDate == latestEveningSinaFundQuoteDate.Value.Date;
+    }
+
+    private static DateTime? ResolveLatestEveningSinaFundQuoteDate(
+        IEnumerable<MarketQuoteRecord> quotes,
+        DateTime startInclusive,
+        DateTime endExclusive)
+    {
+        DateTime eveningWindowStart = startInclusive.Date.Add(SinaFundEveningWindowStart);
+
+        return quotes
+            .Where(IsSinaFundQuote)
+            .Select(quote => new
+            {
+                QuoteDate = ParseTime(quote.QuoteTime)?.Date,
+                ReceivedAt = ParseTime(quote.ReceivedAt)
+            })
+            .Where(item => item.QuoteDate.HasValue
+                           && item.QuoteDate.Value < startInclusive.Date
+                           && item.ReceivedAt.HasValue
+                           && item.ReceivedAt.Value >= eveningWindowStart
+                           && item.ReceivedAt.Value < endExclusive)
+            .Select(item => (DateTime?)item.QuoteDate!.Value)
+            .DefaultIfEmpty(null)
+            .Max();
+    }
+
+    private static DateTime? ResolveValuationTime(MarketQuoteRecord? quote)
+    {
+        if (quote is null)
+        {
+            return null;
+        }
+
+        if (IsSinaFundQuote(quote))
+        {
+            return ParseTime(quote.QuoteTime);
+        }
+
+        return ParseTime(quote.ReceivedAt) ?? ParseTime(quote.QuoteTime);
     }
 
     private static MarketQuoteRecord? FindValuationQuote(PositionReplayStateRecord position, IEnumerable<MarketQuoteRecord> quotes)
@@ -149,7 +262,8 @@ public static class EtfDecisionTableMetrics
     private static MarketQuoteRecord? FindOtcValuationQuote(string actualCode, IEnumerable<MarketQuoteRecord> quotes)
         => quotes
             .Where(quote => IsSinaFundQuote(quote) && SameSymbol(quote.Symbol, actualCode))
-            .OrderByDescending(quote => quote.ReceivedAt, StringComparer.Ordinal)
+            .OrderByDescending(quote => ParseTime(quote.QuoteTime) ?? DateTime.MinValue)
+            .ThenByDescending(quote => ParseTime(quote.ReceivedAt) ?? DateTime.MinValue)
             .FirstOrDefault();
 
     private static bool IsSinaFundQuote(MarketQuoteRecord quote)
@@ -158,6 +272,25 @@ public static class EtfDecisionTableMetrics
 
     private static bool IsOtcReplacementPosition(PositionReplayStateRecord position)
         => string.Equals(position.Source?.Trim(), OtcReplacementSource, StringComparison.Ordinal);
+
+    private static double? ResolveDailyPnl(double? storedDailyPnl, double quantity, MarketQuoteRecord? quote)
+    {
+        if (HasFiniteValue(storedDailyPnl))
+        {
+            return storedDailyPnl;
+        }
+
+        if (quote?.Price is not double price
+            || quote.LastClose is not double lastClose
+            || !HasFiniteValue(price)
+            || !HasFiniteValue(lastClose)
+            || quantity <= 0)
+        {
+            return null;
+        }
+
+        return (price - lastClose) * quantity;
+    }
 
     private static string BuildPositionKey(string strategyCode, string actualCode)
         => DigitsOnly(strategyCode) + "|" + DigitsOnly(actualCode);

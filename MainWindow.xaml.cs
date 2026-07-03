@@ -1243,11 +1243,7 @@ public partial class MainWindow : Window
             _marketQuotes,
             DateTime.Now);
         DailyPnlMetric dailyPnl = !incomplete && realDailyPnl.HasValue
-            ? AccountTrendMetrics.CalculateDailyPnl(
-                _accountReplaySnapshots,
-                _tradeLogs,
-                realDailyPnl,
-                DateTime.Now)
+            ? BuildValuationDailyPnlMetric(realDailyPnl.Value, replay.TotalAssets)
             : DailyPnlMetric.Empty;
 
         if (incomplete && !dailyPnl.Amount.HasValue)
@@ -4014,6 +4010,14 @@ public partial class MainWindow : Window
         return FormatSignedMoney(metric.Amount)
                + "  "
                + (metric.Ratio.HasValue ? FormatSignedRatioFromRatio(metric.Ratio.Value) : "--");
+    }
+
+    private static DailyPnlMetric BuildValuationDailyPnlMetric(double amount, double? latestTotalAssets)
+    {
+        double? denominator = latestTotalAssets.HasValue && latestTotalAssets.Value - amount > 0
+            ? latestTotalAssets.Value - amount
+            : null;
+        return new DailyPnlMetric(amount, denominator.HasValue ? amount / denominator.Value : null);
     }
 
     private static string FormatQuantity(double value)
