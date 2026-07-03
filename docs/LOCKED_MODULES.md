@@ -439,7 +439,8 @@ Locked commit:
 - `Fix daily PnL Beijing natural day basis`
 
 Superseding clarification:
-- This lock keeps the Beijing natural-day boundary, but its PnL inclusion rules are corrected and supplemented by `LOCK-PNL-VALUATION-DATE-FILTER-001`.
+- This lock keeps the Beijing natural-day boundary, but its PnL inclusion rules are corrected and supplemented by `LOCK-PNL-VALUATION-DATE-FILTER-001` and `LOCK-PNL-NATURAL-DAY-EVENT-FILTER-001`.
+- If this lock conflicts with `LOCK-PNL-NATURAL-DAY-EVENT-FILTER-001` about which PnL items are eligible, the newer event-filter lock is authoritative.
 - It must not be interpreted as excluding all OTC or fund daily PnL.
 - It must not forbid broker-compatible exchange ETF daily PnL display such as `(current real price - previous close) * current holding quantity`.
 - It must not force ETF table `当日盈亏` to display `--` only because no single-symbol `00:00` baseline exists.
@@ -505,6 +506,11 @@ Locked commit:
 - `6ad6705621f48739849302b47a2fea3cbac3f137`
 - `Fix daily PnL valuation date filtering`
 
+Superseding clarification:
+- This lock is corrected and supplemented by `LOCK-PNL-NATURAL-DAY-EVENT-FILTER-001`.
+- Do not interpret this lock as saying `received_at` alone is sufficient, `quote_time == today` alone is sufficient, or a fixed `20:00` rule is the business definition.
+- The authoritative rule is whether the PnL event belongs to the target Beijing natural day `[D 00:00:00, D+1 00:00:00)`.
+
 Accepted behavior:
 - `今日盈亏` and `当日盈亏` remain based on the Beijing natural-day interval.
 - The interval is the half-open Beijing-time range `[today 00:00:00, tomorrow 00:00:00)`.
@@ -553,6 +559,84 @@ Protection tests:
 - TradeLog is not written.
 - `order_draft_state` is not changed.
 - OTCMap, OtcPositionReplayState, Sina fund source, and strategy buy/sell rules are not changed.
+- No main-window manual refresh button is added.
+
+### 1.22 LOCK-PNL-NATURAL-DAY-EVENT-FILTER-001：今日/当日盈亏任意自然日事件过滤锁定
+
+Locked commit:
+- `e910e6cd0ae1215461df32c745d3a0b9cf95b57f`
+- `Fix daily PnL natural day event filtering`
+
+Conflict handling:
+- This lock corrects and supplements `LOCK-PNL-BEIJING-NATURAL-DAY-001` and `LOCK-PNL-VALUATION-DATE-FILTER-001`.
+- The old locks remain valid for the Beijing natural-day boundary, half-open interval, no TradeLog write, no order-draft side effect, no strategy-rule change, and no main-window manual refresh button.
+- If an older lock implies OTC/fund PnL is excluded by asset type, `received_at` alone is enough, `quote_time == today` alone is enough, no single-symbol `00:00` baseline means all ETF table rows must show `--`, today's NAV update should be excluded, yesterday's NAV update may count today, or today's NAV update may repeat tomorrow, this lock supersedes that interpretation.
+
+Accepted behavior:
+- Daily PnL / today PnL is filtered by Beijing natural-day PnL events for any natural day `D`.
+- The interval is `[D 00:00:00, D+1 00:00:00)`.
+- `D 00:00:00` is included in day `D`.
+- `D 23:59:59` is included in day `D`.
+- `D+1 00:00:00` is excluded from day `D`.
+- `D-1 23:59:59` is excluded from day `D`.
+- Previous-day PnL events must not be counted in today.
+- Today's PnL events must be counted today.
+- Tomorrow must not repeat PnL events that already happened today.
+- The same rule applies to every date; do not add Monday, Friday, holiday, July 3, or other date-specific branches.
+- `20:00` is not a business rule. It may appear only as a data-time example for evening NAV publication.
+- OTC/fund/NAV PnL is account PnL and must be eligible when the new NAV/PnL event happens inside the current natural day.
+- OTC/fund/NAV PnL from yesterday is not counted today.
+- OTC/fund/NAV PnL from today is not repeated tomorrow.
+- Exchange ETF daily PnL remains broker-compatible for table display and may use `(current real price - previous close) * current holding quantity` from real quote data.
+- Exchange ETF daily PnL must still be filtered so a stale quote from day `D` is not counted again on `D+1`.
+- The top-card today PnL and the ETF decision table daily PnL must use the same eligible-item path in `EtfDecisionTableMetrics`.
+- A row that is ineligible and displays `--` in the table must not be counted by the top-card through a looser path.
+- The top-card must not fall back to an older `AccountTrendMetrics` snapshot-difference path that produces a different eligible-item set.
+- Do not use A-share trading-day or US trading-day boundaries to replace the Beijing natural-day event filter.
+- Do not use market-source change percent, change value, or `current price - previous close` as a replacement for account-level PnL.
+
+SINA_FUND / NAV event rules:
+- SINA_FUND and other NAV records must identify whether the NAV/PnL event is newly effective in the target natural day.
+- Do not decide eligibility from `received_at` alone.
+- Do not decide eligibility from `quote_time == today` alone.
+- Do not count an old NAV record merely because it was received again today.
+- Do not count a today-received batch if the actual NAV event belongs to an older date.
+- Do not repeat yesterday evening's NAV event in today's PnL.
+- Do not repeat today's NAV event in tomorrow's PnL.
+- If the system receives a newly published NAV batch on day `D` and the PnL event belongs to day `D`, it is eligible for day `D`.
+- If the event time or event ownership cannot be determined reliably, skip that PnL item instead of fabricating eligibility.
+
+Implementation boundaries:
+- Keep the calculation in the decision-table / display metrics path; do not modify TradeLog facts.
+- Do not write TradeLog automatically.
+- Do not modify order-draft execution boundaries.
+- Do not modify strategy buy/sell rules.
+- Do not modify `AccountReplayService.cs`.
+- Do not modify the Sina fund source.
+- Do not modify OTCMap.
+- Do not modify OtcPositionReplayState core replay behavior.
+- Do not modify XAML or white-flash UI files for this lock.
+- Do not add a main-window manual refresh button.
+
+Current test baseline:
+- `843/843`
+
+Protection tests:
+- Generic natural day `D` includes events from `D 00:00:00` through before `D+1 00:00:00`.
+- `D-1 23:59:59` is excluded from day `D`.
+- `D+1 00:00:00` is excluded from day `D`.
+- A normal workday morning does not count the previous evening's NAV event.
+- A normal workday evening counts the same-day newly effective NAV event.
+- The next morning does not repeat the previous evening's NAV event.
+- Monday morning does not count the previous Friday evening's NAV event.
+- Monday evening counts the Monday newly effective NAV event.
+- Tuesday morning does not repeat the Monday evening NAV event.
+- Exchange ETF quote/PnL for day `D` is counted in day `D` and is not repeated on `D+1`.
+- Top-card today PnL and ETF table daily PnL use the same eligible-item path.
+- Table `--` rows are not counted by the top-card.
+- Effective rows are counted; ineffective rows are skipped.
+- TradeLog is not written.
+- `order_draft_state` is not changed.
 - No main-window manual refresh button is added.
 
 ## 2. 后续任务解锁流程
