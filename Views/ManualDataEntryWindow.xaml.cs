@@ -25,6 +25,8 @@ public enum ManualEntryScope
 
 public partial class ManualDataEntryWindow : Window
 {
+    private static readonly Color ManualWindowBackgroundColor = Color.FromRgb(0x05, 0x0B, 0x14);
+
     private const string StrategyTabHeader = "策略配置";
     private const string AccountTabHeader = "账户状态";
     private const string PositionTabHeader = "持仓";
@@ -112,8 +114,11 @@ public partial class ManualDataEntryWindow : Window
     {
         _repository = repository;
         InitializeComponent();
-        WindowInteractionEffects.ApplySmoothOpen(this);
-        SourceInitialized += (_, _) => TryApplyDarkTitleBar();
+        SourceInitialized += (_, _) =>
+        {
+            TryApplyDarkTitleBar();
+            ApplyDarkHwndBackground();
+        };
         DatabasePathText.Text = databasePath;
         BuildTabs();
         LoadData();
@@ -200,12 +205,33 @@ public partial class ManualDataEntryWindow : Window
             int enabled = 1;
             _ = DwmSetWindowAttribute(hwnd, 20, ref enabled, Marshal.SizeOf<int>());
             _ = DwmSetWindowAttribute(hwnd, 19, ref enabled, Marshal.SizeOf<int>());
+            int border = ToColorRef(Color.FromRgb(0x0B, 0x25, 0x38));
+            _ = DwmSetWindowAttribute(hwnd, 34, ref border, Marshal.SizeOf<int>());
         }
         catch
         {
             // Keep the native title bar unchanged on Windows builds without this DWM attribute.
         }
     }
+
+    private void ApplyDarkHwndBackground()
+    {
+        try
+        {
+            if (PresentationSource.FromVisual(this) is HwndSource source
+                && source.CompositionTarget is not null)
+            {
+                source.CompositionTarget.BackgroundColor = ManualWindowBackgroundColor;
+            }
+        }
+        catch
+        {
+            // DWM dark mode still keeps the visible frame dark if HwndSource is unavailable.
+        }
+    }
+
+    private static int ToColorRef(Color color)
+        => color.R | (color.G << 8) | (color.B << 16);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);

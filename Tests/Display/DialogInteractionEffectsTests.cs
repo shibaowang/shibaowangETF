@@ -40,9 +40,34 @@ public sealed class DialogInteractionEffectsTests
         Assert.Contains("TimeSpan.FromMilliseconds(160)", helper, StringComparison.Ordinal);
         Assert.Contains("CubicEase", helper, StringComparison.Ordinal);
         Assert.Contains("BeginAnimation(UIElement.OpacityProperty", helper, StringComparison.Ordinal);
-        Assert.Contains("WindowInteractionEffects.ApplySmoothOpen(this)", manualCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("WindowInteractionEffects.ApplySmoothOpen(this)", manualCode, StringComparison.Ordinal);
         Assert.Contains("WindowInteractionEffects.ApplySmoothOpen(this)", riskCode, StringComparison.Ordinal);
         Assert.Contains("WindowInteractionEffects.ApplySmoothOpen(dialog)", riskCode, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ManualDataEntryWindow_UsesNativeCaptionButtonsWithDwmDarkFrame()
+    {
+        string manualXaml = ReadRepositoryFile(Path.Combine("Views", "ManualDataEntryWindow.xaml"));
+        string manualCode = ReadRepositoryFile(Path.Combine("Views", "ManualDataEntryWindow.xaml.cs"));
+
+        Assert.DoesNotContain("WindowStyle=\"None\"", manualXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<shell:WindowChrome", manualXaml, StringComparison.Ordinal);
+        Assert.Contains("ResizeMode=\"CanResize\"", manualXaml, StringComparison.Ordinal);
+        Assert.Contains("MinWidth=\"260\"", manualXaml, StringComparison.Ordinal);
+        Assert.Contains("MinHeight=\"220\"", manualXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("TitleBarButtonStyle", manualXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"TitleMinimizeButton\"", manualXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"TitleMaximizeButton\"", manualXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"TitleCloseButton\"", manualXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("TitleMinimizeButton_Click", manualCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("TitleMaximizeButton_Click", manualCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConfigureTitleBarButtons", manualCode, StringComparison.Ordinal);
+        Assert.Contains("DwmSetWindowAttribute(hwnd, 34", manualCode, StringComparison.Ordinal);
+        Assert.Contains("ApplyDarkHwndBackground", manualCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("Opacity = 0", manualCode, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DarkStartupShield", manualXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Content = null", manualCode, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
