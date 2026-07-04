@@ -344,6 +344,55 @@ public class EtfDecisionTableMetricsTests
     }
 
     [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_StoredEtfDailyPnlRequiresQuoteTimeInNaturalDay()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159509", "159509", "\u573a\u5185ETF", -3.94, quantity: 86.54)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159509", price: 2.616, lastClose: 2.595, "2026-07-03 16:14:30", "2026-07-04 21:19:00")
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 21, 19, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_StoredEtfDailyPnlWithMissingQuoteTimeIsNotValidToday()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159513", "159513", "\u573a\u5185ETF", -159.22, quantity: 4627.91)
+        };
+        var quotes = new[]
+        {
+            new MarketQuoteRecord
+            {
+                Symbol = "159513",
+                MarketType = "ETF",
+                Source = "TENCENT_QT",
+                Price = 1.776,
+                LastClose = 1.770,
+                QuoteTime = null,
+                ReceivedAt = "2026-07-04 21:19:00"
+            }
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 21, 19, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Fact]
     public void CalculateNaturalDayValuationDailyPnl_TopAndTableBothIgnorePreviousDayEtfQuote()
     {
         var positions = new[]
@@ -752,6 +801,48 @@ public class EtfDecisionTableMetricsTests
     }
 
     [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_IncludesSinaFundEveningNavWhenEtfQuoteConfirmsTradingDay()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159513", price: 1.780, lastClose: 1.770, "2026-07-03 15:00:00", "2026-07-03 15:01:00"),
+            SinaFundQuote("000834", price: 6.3084, lastClose: 6.4131, quoteTime: "2026-07-02", receivedAt: "2026-07-03 19:55:38")
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 3, 20, 5, 0));
+
+        Assert.Equal(-81.38, dailyPnl!.Value, 2);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_ExcludesSinaFundRefetchWhenEtfQuotesShowNoCurrentTradingDay()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159513", price: 1.776, lastClose: 1.770, "2026-10-01 15:00:00", "2026-10-02 20:05:00"),
+            SinaFundQuote("000834", price: 6.3084, lastClose: 6.4131, quoteTime: "2026-10-01", receivedAt: "2026-10-02 20:05:00")
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 10, 2, 20, 6, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Fact]
     public void CalculateNaturalDayValuationDailyPnl_ExcludesOlderSinaFundEveningQuoteWhenNewerNavBatchExists()
     {
         var positions = new[]
@@ -817,6 +908,87 @@ public class EtfDecisionTableMetricsTests
             new DateTime(2026, 7, 4, 9, 0, 0));
 
         Assert.Null(dailyPnl);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_DoesNotTreatWeekendSinaFundRefetchAsNewNavEvent()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31)
+        };
+        var quotes = new[]
+        {
+            new MarketQuoteRecord
+            {
+                Symbol = "000834",
+                MarketType = "OTC",
+                Source = "SINA_FUND",
+                Price = 6.3084,
+                LastClose = 6.4131,
+                ReceivedAt = "2026-07-04 21:19:00",
+                QuoteTime = "2026-07-02"
+            }
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 21, 19, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_ExcludesWeekendSinaFundRefetchFromScreenshotAggregate()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159509", "017091", "\u573a\u5916\u66ff\u4ee3", null, quantity: 43.50),
+            ReplayPosition("159509", "017093", "\u573a\u5916\u66ff\u4ee3", null, quantity: 43.04),
+            ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31),
+            ReplayPosition("159513", "008971", "\u573a\u5916\u66ff\u4ee3", null, quantity: 750.60),
+            ReplayPosition("159660", "018966", "\u573a\u5916\u66ff\u4ee3", null, quantity: 4711.38)
+        };
+        var quotes = new[]
+        {
+            SinaFundQuote("017091", price: 2.7951, lastClose: 2.8409, quoteTime: "2026-07-02", receivedAt: "2026-07-04 21:19:00"),
+            SinaFundQuote("017093", price: 2.7528, lastClose: 2.7980, quoteTime: "2026-07-02", receivedAt: "2026-07-04 21:19:00"),
+            SinaFundQuote("000834", price: 6.3084, lastClose: 6.4131, quoteTime: "2026-07-02", receivedAt: "2026-07-04 21:19:00"),
+            SinaFundQuote("008971", price: 6.2523, lastClose: 6.3560, quoteTime: "2026-07-02", receivedAt: "2026-07-04 21:19:00"),
+            SinaFundQuote("018966", price: 1.6434, lastClose: 1.6688, quoteTime: "2026-07-02", receivedAt: "2026-07-04 21:19:00")
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 21, 19, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_MixedEtfAndSinaFundUsesOnlyValidEvents()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159509", "017091", "\u573a\u5916\u66ff\u4ee3", null, quantity: 43.50),
+            ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159941", price: 1.622, lastClose: 1.614, "2026-07-03 15:00:00", "2026-07-03 15:01:00"),
+            SinaFundQuote("017091", price: 2.7951, lastClose: 2.8409, quoteTime: "2026-07-01", receivedAt: "2026-07-03 19:55:38"),
+            SinaFundQuote("000834", price: 6.3084, lastClose: 6.4131, quoteTime: "2026-07-02", receivedAt: "2026-07-03 19:55:38")
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 3, 20, 5, 0));
+
+        Assert.Equal(-50.18, dailyPnl!.Value, 2);
     }
 
     [Fact]
@@ -989,6 +1161,23 @@ public class EtfDecisionTableMetricsTests
             Symbol = symbol,
             MarketType = "ETF",
             Source = "TENCENT_QT",
+            Price = price,
+            LastClose = lastClose,
+            QuoteTime = quoteTime,
+            ReceivedAt = receivedAt
+        };
+
+    private static MarketQuoteRecord SinaFundQuote(
+        string symbol,
+        double price,
+        double lastClose,
+        string quoteTime,
+        string receivedAt)
+        => new()
+        {
+            Symbol = symbol,
+            MarketType = "OTC",
+            Source = "SINA_FUND",
             Price = price,
             LastClose = lastClose,
             QuoteTime = quoteTime,

@@ -74,16 +74,25 @@ public static class EtfDecisionTableMetrics
         IEnumerable<MarketQuoteRecord> quotes,
         DateTime now)
     {
+        IReadOnlyList<MarketQuoteRecord> quoteList = quotes as IReadOnlyList<MarketQuoteRecord> ?? quotes.ToArray();
         (DateTime startInclusive, DateTime endExclusive) = GetNaturalDayRange(now);
-        DateTime? latestEveningSinaFundQuoteDate = ResolveLatestEveningSinaFundQuoteDate(quotes, startInclusive, endExclusive);
+        DateTime? latestEveningSinaFundQuoteDate = ResolveLatestEveningSinaFundQuoteDate(quoteList, startInclusive, endExclusive);
+        bool hasEtfQuotes = quoteList.Any(IsEtfQuote);
+        bool hasCurrentDayEtfQuote = HasCurrentDayEtfQuote(quoteList, startInclusive, endExclusive);
         bool includedAny = false;
         double total = 0;
         var includedOtcKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (PositionReplayStateRecord position in replayPositions)
         {
-            MarketQuoteRecord? quote = FindValuationQuote(position, quotes);
-            if (!IsValuationUpdatedInRange(quote, startInclusive, endExclusive, latestEveningSinaFundQuoteDate))
+            MarketQuoteRecord? quote = FindValuationQuote(position, quoteList);
+            if (!IsValuationUpdatedInRange(
+                    quote,
+                    startInclusive,
+                    endExclusive,
+                    latestEveningSinaFundQuoteDate,
+                    hasEtfQuotes,
+                    hasCurrentDayEtfQuote))
             {
                 continue;
             }
@@ -109,8 +118,14 @@ public static class EtfDecisionTableMetrics
                 continue;
             }
 
-            MarketQuoteRecord? quote = FindOtcValuationQuote(position.ActualCode, quotes);
-            if (!IsValuationUpdatedInRange(quote, startInclusive, endExclusive, latestEveningSinaFundQuoteDate))
+            MarketQuoteRecord? quote = FindOtcValuationQuote(position.ActualCode, quoteList);
+            if (!IsValuationUpdatedInRange(
+                    quote,
+                    startInclusive,
+                    endExclusive,
+                    latestEveningSinaFundQuoteDate,
+                    hasEtfQuotes,
+                    hasCurrentDayEtfQuote))
             {
                 continue;
             }
@@ -129,7 +144,13 @@ public static class EtfDecisionTableMetrics
     }
 
     public static bool IsValuationUpdatedInRange(MarketQuoteRecord? quote, DateTime startInclusive, DateTime endExclusive)
-        => IsValuationUpdatedInRange(quote, startInclusive, endExclusive, latestEveningSinaFundQuoteDate: null);
+        => IsValuationUpdatedInRange(
+            quote,
+            startInclusive,
+            endExclusive,
+            latestEveningSinaFundQuoteDate: null,
+            hasEtfQuotes: false,
+            hasCurrentDayEtfQuote: false);
 
     public static (DateTime StartInclusive, DateTime EndExclusive) GetNaturalDayRange(DateTime now)
     {
@@ -147,7 +168,9 @@ public static class EtfDecisionTableMetrics
         MarketQuoteRecord? quote,
         DateTime startInclusive,
         DateTime endExclusive,
-        DateTime? latestEveningSinaFundQuoteDate)
+        DateTime? latestEveningSinaFundQuoteDate,
+        bool hasEtfQuotes,
+        bool hasCurrentDayEtfQuote)
     {
         if (quote is null)
         {
@@ -160,7 +183,9 @@ public static class EtfDecisionTableMetrics
                 quote,
                 startInclusive,
                 endExclusive,
-                latestEveningSinaFundQuoteDate);
+                latestEveningSinaFundQuoteDate,
+                hasEtfQuotes,
+                hasCurrentDayEtfQuote);
         }
 
         DateTime? valuationTime = ResolveMarketQuoteValuationTime(quote);
@@ -173,7 +198,9 @@ public static class EtfDecisionTableMetrics
         MarketQuoteRecord quote,
         DateTime startInclusive,
         DateTime endExclusive,
-        DateTime? latestEveningSinaFundQuoteDate)
+        DateTime? latestEveningSinaFundQuoteDate,
+        bool hasEtfQuotes,
+        bool hasCurrentDayEtfQuote)
     {
         DateTime? quoteTime = ParseTime(quote.QuoteTime);
         if (!quoteTime.HasValue)
@@ -189,6 +216,23 @@ public static class EtfDecisionTableMetrics
 
         DateTime? receivedAt = ParseTime(quote.ReceivedAt);
         if (!receivedAt.HasValue || receivedAt.Value < startInclusive || receivedAt.Value >= endExclusive)
+        {
+            return false;
+        }
+
+        // SINA_FUND cache rows are upserted. A non-trading re-fetch can refresh
+        // received_at for an old NAV date, but that is not a new PnL event.
+        if (IsWeekend(receivedAt.Value.Date))
+        {
+            return false;
+        }
+
+        if (hasEtfQuotes && !hasCurrentDayEtfQuote)
+        {
+            return false;
+        }
+
+        if (quoteDate != PreviousWeekday(receivedAt.Value.Date))
         {
             return false;
         }
@@ -226,6 +270,17 @@ public static class EtfDecisionTableMetrics
             .DefaultIfEmpty(null)
             .Max();
     }
+
+    private static bool HasCurrentDayEtfQuote(
+        IEnumerable<MarketQuoteRecord> quotes,
+        DateTime startInclusive,
+        DateTime endExclusive)
+        => quotes
+            .Where(IsEtfQuote)
+            .Select(quote => ParseTime(quote.QuoteTime))
+            .Any(quoteTime => quoteTime.HasValue
+                              && quoteTime.Value >= startInclusive
+                              && quoteTime.Value < endExclusive);
 
     private static DateTime? ResolveValuationTime(MarketQuoteRecord? quote)
     {
@@ -272,6 +327,23 @@ public static class EtfDecisionTableMetrics
     private static bool IsSinaFundQuote(MarketQuoteRecord quote)
         => string.Equals(quote.MarketType, "OTC", StringComparison.OrdinalIgnoreCase)
            || string.Equals(quote.Source, "SINA_FUND", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsEtfQuote(MarketQuoteRecord quote)
+        => string.Equals(quote.MarketType, "ETF", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWeekend(DateTime date)
+        => date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+
+    private static DateTime PreviousWeekday(DateTime date)
+    {
+        DateTime candidate = date.AddDays(-1);
+        while (IsWeekend(candidate))
+        {
+            candidate = candidate.AddDays(-1);
+        }
+
+        return candidate.Date;
+    }
 
     private static bool IsOtcReplacementPosition(PositionReplayStateRecord position)
         => string.Equals(position.Source?.Trim(), OtcReplacementSource, StringComparison.Ordinal);
