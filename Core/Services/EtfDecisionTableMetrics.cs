@@ -163,7 +163,7 @@ public static class EtfDecisionTableMetrics
                 latestEveningSinaFundQuoteDate);
         }
 
-        DateTime? valuationTime = ResolveValuationTime(quote);
+        DateTime? valuationTime = ResolveMarketQuoteValuationTime(quote);
         return valuationTime.HasValue
                && valuationTime.Value >= startInclusive
                && valuationTime.Value < endExclusive;
@@ -241,6 +241,9 @@ public static class EtfDecisionTableMetrics
 
         return ParseTime(quote.ReceivedAt) ?? ParseTime(quote.QuoteTime);
     }
+
+    private static DateTime? ResolveMarketQuoteValuationTime(MarketQuoteRecord quote)
+        => ParseTime(quote.QuoteTime);
 
     private static MarketQuoteRecord? FindValuationQuote(PositionReplayStateRecord position, IEnumerable<MarketQuoteRecord> quotes)
     {

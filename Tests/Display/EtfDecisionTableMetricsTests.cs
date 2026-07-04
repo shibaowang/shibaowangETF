@@ -158,10 +158,12 @@ public class EtfDecisionTableMetricsTests
     }
 
     [Theory]
-    [InlineData("2026-07-03 09:30:00", "2026-07-03 09:30:00", true)]
-    [InlineData("2026-07-04 09:30:00", "2026-07-03 15:00:00", false)]
+    [InlineData("2026-07-03 09:30:00", "2026-07-03 09:30:00", "2026-07-03 09:30:00", true)]
+    [InlineData("2026-07-04 07:34:00", "2026-07-03 15:00:00", "2026-07-04 07:34:00", false)]
+    [InlineData("2026-07-04 07:34:00", null, "2026-07-04 07:34:00", false)]
     public void CalculateNaturalDayValuationDailyPnl_HandlesEtfQuoteBySameNaturalDay(
         string now,
+        string? quoteTime,
         string receivedAt,
         bool expectedIncluded)
     {
@@ -178,6 +180,7 @@ public class EtfDecisionTableMetricsTests
                 Source = "TENCENT_QT",
                 Price = 1.622,
                 LastClose = 1.614,
+                QuoteTime = quoteTime,
                 ReceivedAt = receivedAt
             }
         };
@@ -195,6 +198,213 @@ public class EtfDecisionTableMetricsTests
         {
             Assert.Null(dailyPnl);
         }
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_ExcludesWeekendEtfQuotesWhenQuoteTimeIsPreviousTradingDay()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159513", "159513", "\u573a\u5185ETF", null, quantity: 3100)
+        };
+        var quotes = new[]
+        {
+            new MarketQuoteRecord
+            {
+                Symbol = "159941",
+                MarketType = "ETF",
+                Source = "TENCENT_QT",
+                Price = 1.622,
+                LastClose = 1.614,
+                QuoteTime = "2026-07-03 16:14:51",
+                ReceivedAt = "2026-07-04 07:34:00"
+            },
+            new MarketQuoteRecord
+            {
+                Symbol = "159513",
+                MarketType = "ETF",
+                Source = "TENCENT_QT",
+                Price = 1.776,
+                LastClose = 1.770,
+                QuoteTime = "2026-07-03 16:14:21",
+                ReceivedAt = "2026-07-04 07:34:00"
+            }
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 7, 34, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_DoesNotFallbackEtfDailyPnlWhenOnlyReceivedAtIsToday()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900)
+        };
+        var quotes = new[]
+        {
+            new MarketQuoteRecord
+            {
+                Symbol = "159941",
+                MarketType = "ETF",
+                Source = "TENCENT_QT",
+                Price = 1.622,
+                LastClose = 1.614,
+                QuoteTime = "2026-07-03 16:14:51",
+                ReceivedAt = "2026-07-04 07:34:00"
+            }
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 7, 34, 0));
+
+        Assert.Null(dailyPnl);
+    }
+
+    [Theory]
+    [InlineData("2026-07-08 09:30:00", "2026-07-07 15:00:00", "2026-07-08 09:30:00", false)]
+    [InlineData("2026-07-08 10:30:00", "2026-07-08 10:30:00", "2026-07-08 10:30:00", true)]
+    [InlineData("2026-07-09 09:30:00", "2026-07-08 15:00:00", "2026-07-09 09:30:00", false)]
+    [InlineData("2026-07-04 07:34:00", "2026-07-03 16:14:00", "2026-07-04 07:34:00", false)]
+    [InlineData("2026-07-05 09:30:00", "2026-07-03 16:14:00", "2026-07-05 09:30:00", false)]
+    [InlineData("2026-10-02 09:30:00", "2026-09-30 15:00:00", "2026-10-02 09:30:00", false)]
+    [InlineData("2026-07-08 12:00:00", "2026-07-08 00:00:00", "2026-07-08 12:00:00", true)]
+    [InlineData("2026-07-08 12:00:00", "2026-07-08 23:59:59", "2026-07-08 23:59:59", true)]
+    [InlineData("2026-07-08 12:00:00", "2026-07-07 23:59:59", "2026-07-08 12:00:00", false)]
+    [InlineData("2026-07-08 12:00:00", "2026-07-09 00:00:00", "2026-07-08 12:00:00", false)]
+    public void CalculateNaturalDayValuationDailyPnl_FiltersEtfByQuoteTimeForAnyNaturalDay(
+        string now,
+        string quoteTime,
+        string receivedAt,
+        bool expectedIncluded)
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159941", price: 1.622, lastClose: 1.614, quoteTime, receivedAt)
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            DateTime.Parse(now));
+
+        if (expectedIncluded)
+        {
+            Assert.Equal(31.20, dailyPnl!.Value, 2);
+        }
+        else
+        {
+            Assert.Null(dailyPnl);
+        }
+    }
+
+    [Theory]
+    [InlineData("2026-07-08 10:30:00", "2026-07-08 10:30:00", "2026-07-08 10:30:00", true)]
+    [InlineData("2026-07-08 09:30:00", "2026-07-07 15:00:00", "2026-07-08 09:30:00", false)]
+    public void CalculateNaturalDayValuationDailyPnl_FallbackEtfDailyPnlStillRequiresQuoteTimeInNaturalDay(
+        string now,
+        string quoteTime,
+        string receivedAt,
+        bool expectedIncluded)
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159941", price: 1.622, lastClose: 1.614, quoteTime, receivedAt)
+        };
+
+        double? dailyPnl = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            DateTime.Parse(now));
+
+        if (expectedIncluded)
+        {
+            Assert.Equal(31.20, dailyPnl!.Value, 2);
+        }
+        else
+        {
+            Assert.Null(dailyPnl);
+        }
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_TopAndTableBothIgnorePreviousDayEtfQuote()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900),
+            ReplayPosition("159513", "159513", "\u573a\u5185ETF", 18.60, quantity: 3100)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159941", price: 1.622, lastClose: 1.614, "2026-07-03 16:14:51", "2026-07-04 07:34:00"),
+            EtfQuote("159513", price: 1.776, lastClose: 1.770, "2026-07-03 16:14:21", "2026-07-04 07:34:00")
+        };
+
+        double? topAggregate = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 4, 7, 34, 0));
+        double? table159941 = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions.Where(position => position.StrategyCode == "159941"),
+            quotes,
+            new DateTime(2026, 7, 4, 7, 34, 0));
+        double? table159513 = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions.Where(position => position.StrategyCode == "159513"),
+            quotes,
+            new DateTime(2026, 7, 4, 7, 34, 0));
+
+        Assert.Null(topAggregate);
+        Assert.Null(table159941);
+        Assert.Null(table159513);
+    }
+
+    [Fact]
+    public void CalculateNaturalDayValuationDailyPnl_TopAndTableBothIncludeCurrentDayEtfQuote()
+    {
+        var positions = new[]
+        {
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159513", "159513", "\u573a\u5185ETF", null, quantity: 3100)
+        };
+        var quotes = new[]
+        {
+            EtfQuote("159941", price: 1.622, lastClose: 1.614, "2026-07-08 10:30:00", "2026-07-08 10:30:00"),
+            EtfQuote("159513", price: 1.776, lastClose: 1.770, "2026-07-08 10:30:00", "2026-07-08 10:30:00")
+        };
+
+        double? topAggregate = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions,
+            quotes,
+            new DateTime(2026, 7, 8, 10, 31, 0));
+        double? table159941 = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions.Where(position => position.StrategyCode == "159941"),
+            quotes,
+            new DateTime(2026, 7, 8, 10, 31, 0));
+        double? table159513 = EtfDecisionTableMetrics.CalculateNaturalDayValuationDailyPnl(
+            positions.Where(position => position.StrategyCode == "159513"),
+            quotes,
+            new DateTime(2026, 7, 8, 10, 31, 0));
+
+        Assert.Equal(49.80, topAggregate!.Value, 2);
+        Assert.Equal(31.20, table159941!.Value, 2);
+        Assert.Equal(18.60, table159513!.Value, 2);
     }
 
     [Fact]
@@ -234,7 +444,7 @@ public class EtfDecisionTableMetricsTests
                 Price = 1.618,
                 LastClose = 1.614,
                 ReceivedAt = "2026-07-03 10:35:18",
-                QuoteTime = "2026-07-02 15:00:00"
+                QuoteTime = "2026-07-03 10:35:18"
             }
         };
 
@@ -264,7 +474,7 @@ public class EtfDecisionTableMetricsTests
                 Price = 1.604,
                 LastClose = 1.614,
                 ReceivedAt = "2026-07-03 10:35:18",
-                QuoteTime = null
+                QuoteTime = "2026-07-03 10:35:18"
             },
             new MarketQuoteRecord
             {
@@ -308,6 +518,7 @@ public class EtfDecisionTableMetricsTests
                 Source = "TENCENT_QT",
                 Price = 1.623,
                 LastClose = 1.614,
+                QuoteTime = "2026-07-03 10:55:00",
                 ReceivedAt = "2026-07-03 10:55:00"
             },
             new MarketQuoteRecord
@@ -317,6 +528,7 @@ public class EtfDecisionTableMetricsTests
                 Source = "TENCENT_QT",
                 Price = 1.780,
                 LastClose = 1.770,
+                QuoteTime = "2026-07-03 10:55:00",
                 ReceivedAt = "2026-07-03 10:55:00"
             },
             new MarketQuoteRecord
@@ -764,5 +976,22 @@ public class EtfDecisionTableMetricsTests
             MarketType = marketType,
             ReceivedAt = receivedAt,
             QuoteTime = receivedAt
+        };
+
+    private static MarketQuoteRecord EtfQuote(
+        string symbol,
+        double price,
+        double lastClose,
+        string quoteTime,
+        string receivedAt)
+        => new()
+        {
+            Symbol = symbol,
+            MarketType = "ETF",
+            Source = "TENCENT_QT",
+            Price = price,
+            LastClose = lastClose,
+            QuoteTime = quoteTime,
+            ReceivedAt = receivedAt
         };
 }
