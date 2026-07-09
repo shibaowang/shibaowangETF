@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -125,6 +126,7 @@ public partial class MainWindow : Window
             runtimeLog: (level, module, message) => TryWriteRuntimeLog(level, module, "走势图数据刷新失败", message),
             scheduler: _marketRequestScheduler);
         InitializeComponent();
+        VersionText.Text = BuildVersionDisplayText();
         _chartWindowManager = new ChartWindowManager(this, _chartSubscriptions, _chartRefreshCoordinator);
         LoadEtfColumnSettings();
         LoadEtfPinnedSymbols();
@@ -1504,6 +1506,34 @@ public partial class MainWindow : Window
 
     public static bool IsActionableNavigation(string navigationName)
         => ResolveManualEntryScopeForNavigation(navigationName) is not null || IsRiskCenterNavigation(navigationName);
+
+    public static string BuildVersionDisplayText()
+        => $"版本： {ResolveDisplayVersion()}";
+
+    public static string ResolveDisplayVersion()
+    {
+        Assembly assembly = typeof(MainWindow).Assembly;
+        string? informationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        Version? assemblyVersion = assembly.GetName().Version;
+        string version = string.IsNullOrWhiteSpace(informationalVersion)
+            ? assemblyVersion?.ToString(3) ?? "0.0.0"
+            : informationalVersion;
+        int metadataIndex = version.IndexOf('+', StringComparison.Ordinal);
+        if (metadataIndex >= 0)
+        {
+            version = version[..metadataIndex];
+        }
+
+        int prereleaseIndex = version.IndexOf('-', StringComparison.Ordinal);
+        if (prereleaseIndex >= 0)
+        {
+            version = version[..prereleaseIndex];
+        }
+
+        return "V" + version.TrimStart('v', 'V');
+    }
 
     private void NavigationButton_Click(object sender, RoutedEventArgs e)
     {

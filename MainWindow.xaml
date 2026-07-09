@@ -245,7 +245,7 @@
                                     <TextBlock x:Name="RefreshLatencyText" Text="本地刷新 -- ms" Margin="58,0,0,0" VerticalAlignment="Center" FontSize="15.5" />
                                 </Grid>
                                 <Border Grid.Row="2" Background="{StaticResource BorderSoftBrush}" />
-                                <TextBlock Grid.Row="3" Text="版本： V8.0.0" Margin="18,18,0,0" FontSize="16" />
+                                <TextBlock x:Name="VersionText" Grid.Row="3" Text="版本： --" Margin="18,18,0,0" FontSize="16" />
                             </Grid>
                         </Border>
                     </Grid>

@@ -1,3 +1,5 @@
+using CrossETF.Terminal.UiShell.Reference;
+
 namespace CrossETF.Terminal.UiShell.Reference.Tests.Display;
 
 public class MainWindowDisplayTextTests
@@ -20,6 +22,22 @@ public class MainWindowDisplayTextTests
 
         Assert.Contains("ETF高点", code);
         Assert.DoesNotContain("ETF隐点", code);
+    }
+
+    [Fact]
+    public void MainWindow_VersionDisplayUsesAssemblyVersion()
+    {
+        string xaml = ReadRepositoryFile("MainWindow.xaml");
+        string code = ReadRepositoryFile("MainWindow.xaml.cs");
+        string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
+
+        Assert.DoesNotContain("V8.0.0", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"VersionText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("VersionText.Text = BuildVersionDisplayText();", code, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.0.3</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.0.3</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Equal("V8.0.3", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("版本： V8.0.3", MainWindow.BuildVersionDisplayText());
     }
 
     private static string ReadRepositoryFile(string relativePath)
