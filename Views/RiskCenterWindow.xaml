@@ -13,6 +13,10 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Styles/RiskCenterActionButtonStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
         <SolidColorBrush x:Key="RiskTextBrush" Color="#EAF6FF" />
         <SolidColorBrush x:Key="RiskMutedBrush" Color="#9FB7C8" />
         <SolidColorBrush x:Key="RiskBackgroundBrush" Color="#050B14" />
@@ -27,6 +31,42 @@
         <SolidColorBrush x:Key="RiskScrollBarThumbHoverBrush" Color="#3D88B0" />
         <SolidColorBrush x:Key="RiskScrollBarThumbPressedBrush" Color="#52A8D0" />
         <SolidColorBrush x:Key="RiskScrollBarArrowBrush" Color="#CFEFFF" />
+
+        <Style x:Key="RiskCenterTabItemStyle" TargetType="{x:Type TabItem}">
+            <Setter Property="Foreground" Value="{StaticResource RiskTextBrush}" />
+            <Setter Property="Background" Value="{StaticResource RiskHeaderBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource RiskBorderBrush}" />
+            <Setter Property="Padding" Value="16,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Border x:Name="TabBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1,1,1,0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource RiskHoverBrush}" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource RiskSelectedBrush}" />
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#3D88B0" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource RiskTextBrush}" />
@@ -275,7 +315,7 @@
             </Style.Triggers>
         </Style>
 
-        <Style TargetType="Button">
+            <Style TargetType="Button">
             <Setter Property="Background" Value="#0B2B42" />
             <Setter Property="Foreground" Value="{StaticResource RiskTextBrush}" />
             <Setter Property="BorderBrush" Value="#2A6F93" />
@@ -283,7 +323,8 @@
             <Setter Property="Padding" Value="18,7" />
             <Setter Property="MinWidth" Value="86" />
             <Setter Property="Cursor" Value="Hand" />
-        </Style>
+            </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Grid Margin="18" Background="#050B14">
@@ -311,9 +352,11 @@
                         Orientation="Horizontal"
                         VerticalAlignment="Top">
                 <Button Content="刷新日志"
+                        Style="{StaticResource RiskCenterActionButtonStyle}"
                         Click="RefreshLogsButton_Click" />
                 <Button Content="清空日志"
                         Margin="12,0,0,0"
+                        Style="{StaticResource RiskCenterDangerButtonStyle}"
                         Click="ClearLogsButton_Click" />
             </StackPanel>
         </Grid>
@@ -355,9 +398,6 @@
                        VerticalAlignment="Center"
                        FontSize="13"
                        Foreground="{StaticResource RiskMutedBrush}" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="关闭" Click="CloseButton_Click" />
-        </StackPanel>
         </Grid>
     </Grid>
 </Window>

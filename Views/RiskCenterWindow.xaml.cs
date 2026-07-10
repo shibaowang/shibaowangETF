@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using CrossETF.Terminal.UiShell.Reference.Core.Models;
+using CrossETF.Terminal.UiShell.Reference.Core.Services;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Persistence;
 
 namespace CrossETF.Terminal.UiShell.Reference.Views;
@@ -13,18 +14,94 @@ namespace CrossETF.Terminal.UiShell.Reference.Views;
 public partial class RiskCenterWindow : Window
 {
     private readonly LocalDataRepository _repository;
+    private MarketDiagnosticsView? _diagnosticsView;
 
     public RiskCenterWindow(LocalDataRepository repository)
     {
         _repository = repository;
         InitializeComponent();
+        WrapRiskCenterContent();
         WindowInteractionEffects.ApplySmoothOpen(this);
         DataContext = this;
         SourceInitialized += (_, _) => TryApplyDarkTitleBar();
-        Loaded += (_, _) => RefreshAlertLogs(false);
+        Loaded += (_, _) =>
+        {
+            RefreshAlertLogs(false);
+            _diagnosticsView?.RefreshLocalState();
+        };
     }
 
     public ObservableCollection<RiskAlertLogRow> Rows { get; } = new();
+
+    private void WrapRiskCenterContent()
+    {
+        if (Content is not UIElement riskOverviewContent)
+        {
+            return;
+        }
+
+        Content = null;
+        var tabs = new TabControl
+        {
+            Background = BrushFrom("#050B14"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            Foreground = BrushFrom("#EAF6FF"),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            ItemContainerStyle = (Style)FindResource("RiskCenterTabItemStyle")
+        };
+        tabs.Items.Add(new TabItem
+        {
+            Header = "风险概览",
+            Content = riskOverviewContent
+        });
+
+        _diagnosticsView = new MarketDiagnosticsView(new MarketDiagnosticsSnapshotService(_repository));
+        tabs.Items.Add(new TabItem
+        {
+            Header = "运行诊断",
+            Content = _diagnosticsView
+        });
+
+        var root = new Grid
+        {
+            Background = BrushFrom("#050B14"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        Grid.SetRow(tabs, 0);
+        Grid.SetRowSpan(tabs, 2);
+        root.Children.Add(tabs);
+
+        Border commonFooter = CreateCommonFooter();
+        Grid.SetRow(commonFooter, 2);
+        root.Children.Add(commonFooter);
+
+        Content = root;
+    }
+
+    private Border CreateCommonFooter()
+    {
+        var closeButton = new Button
+        {
+            Content = "关闭",
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        closeButton.Click += CloseButton_Click;
+
+        return new Border
+        {
+            Background = BrushFrom("#050B14"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(18, 12, 18, 14),
+            Child = closeButton
+        };
+    }
 
     public static IReadOnlyList<RiskAlertLogRow> BuildRows(IEnumerable<AlertLogRecord> records)
         => records.Select(record => new RiskAlertLogRow(

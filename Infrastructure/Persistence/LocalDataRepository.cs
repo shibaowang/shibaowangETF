@@ -18,6 +18,8 @@ public sealed class LocalDataRepository : IAlertDeliveryStore, IChartIntradayCac
         _database.Initialize();
     }
 
+    public string DatabasePath => _database.DatabasePath;
+
     public IReadOnlyList<StrategyConfigRecord> ReadStrategyConfigs()
     {
         using var connection = _database.OpenConnection();

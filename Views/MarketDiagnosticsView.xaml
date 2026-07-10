@@ -1,0 +1,336 @@
+<UserControl x:Class="CrossETF.Terminal.UiShell.Reference.Views.MarketDiagnosticsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#050B14"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Styles/RiskCenterActionButtonStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        <SolidColorBrush x:Key="DiagTextBrush" Color="#EAF6FF" />
+        <SolidColorBrush x:Key="DiagMutedBrush" Color="#9FB7C8" />
+        <SolidColorBrush x:Key="DiagPanelBrush" Color="#071B2A" />
+        <SolidColorBrush x:Key="DiagHeaderBrush" Color="#0B2B42" />
+        <SolidColorBrush x:Key="DiagBorderBrush" Color="#1F4E68" />
+        <SolidColorBrush x:Key="DiagHoverBrush" Color="#0E334B" />
+        <SolidColorBrush x:Key="DiagSelectedBrush" Color="#123E5A" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource DiagTextBrush}" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#0B2B42" />
+            <Setter Property="Foreground" Value="{StaticResource DiagTextBrush}" />
+            <Setter Property="BorderBrush" Value="#2A6F93" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="16,7" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="DiagnosticsTabItemStyle" TargetType="{x:Type TabItem}">
+            <Setter Property="Foreground" Value="{StaticResource DiagTextBrush}" />
+            <Setter Property="Background" Value="{StaticResource DiagHeaderBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource DiagBorderBrush}" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Border x:Name="TabBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1,1,1,0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource DiagHoverBrush}" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource DiagSelectedBrush}" />
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#3D88B0" />
+                                <Setter Property="Foreground" Value="#FFFFFF" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource DiagPanelBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource DiagTextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource DiagBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HorizontalGridLinesBrush" Value="#15384F" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+            <Setter Property="RowBackground" Value="#071B2A" />
+            <Setter Property="AlternatingRowBackground" Value="#082235" />
+            <Setter Property="CanUserAddRows" Value="False" />
+            <Setter Property="CanUserDeleteRows" Value="False" />
+            <Setter Property="CanUserReorderColumns" Value="False" />
+            <Setter Property="CanUserResizeRows" Value="False" />
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="AutoGenerateColumns" Value="False" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+        </Style>
+
+            <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{StaticResource DiagHeaderBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource DiagTextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource DiagBorderBrush}" />
+            <Setter Property="Padding" Value="8,6" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid Margin="20" Background="#050B14" ClipToBounds="True"
+          HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="0" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="运行诊断" FontSize="24" FontWeight="SemiBold" />
+                <TextBlock Text="只读读取本地 SQLite、运行日志和程序集信息；不会请求行情、不会回放账户、不会写 TradeLog。"
+                           Margin="0,7,0,0"
+                           FontSize="13"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource DiagMutedBrush}" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="重新读取本地状态"
+                    VerticalAlignment="Top"
+                    Style="{StaticResource RiskCenterActionButtonStyle}"
+                    Click="ReloadLocalStateButton_Click" />
+        </Grid>
+
+        <TabControl Grid.Row="2"
+                    Background="#050B14"
+                    BorderBrush="{StaticResource DiagBorderBrush}"
+                    ItemContainerStyle="{StaticResource DiagnosticsTabItemStyle}"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
+                    VerticalContentAlignment="Stretch"
+                    ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <TabItem Header="诊断总览">
+                <ScrollViewer Background="#050B14"
+                              HorizontalContentAlignment="Stretch"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <UniformGrid Columns="3" Margin="0,12,0,0"
+                                 HorizontalAlignment="Stretch"
+                                 VerticalAlignment="Stretch">
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,12,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="整体状态" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock Text="{Binding Overview.OverallStatus}" FontSize="26" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,12,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="当前数据源：正常 / 异常" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock FontSize="24" FontWeight="SemiBold" Margin="0,8,0,0">
+                                    <Run Text="{Binding Overview.NormalSourceCount}" />
+                                    <Run Text=" / " />
+                                    <Run Text="{Binding Overview.AbnormalSourceCount}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,0,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="当前过期行情数量" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock Text="{Binding Overview.StaleQuoteCount}" FontSize="24" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,12,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="近30分钟 ERROR / WARN" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock FontSize="24" FontWeight="SemiBold" Margin="0,8,0,0">
+                                    <Run Text="{Binding Overview.RecentErrorCount}" />
+                                    <Run Text=" / " />
+                                    <Run Text="{Binding Overview.RecentWarningCount}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,12,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="进程启动后 ERROR / 已读历史日志" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock FontSize="24" FontWeight="SemiBold" Margin="0,8,0,0">
+                                    <Run Text="{Binding Overview.ProcessErrorCount}" />
+                                    <Run Text=" / " />
+                                    <Run Text="{Binding Overview.HistoricalRuntimeLogCount}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,0,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="今日有效盈亏项数" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock Text="{Binding Overview.IncludedPnlItemCount}" FontSize="24" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,12,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="今日有效盈亏合计" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock Text="{Binding Overview.IncludedPnlTotal, StringFormat={}{0:N2}}" FontSize="24" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,12,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="程序版本" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock Text="{Binding Overview.AppVersion}" FontSize="20" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Margin="0,0,0,12" Padding="16">
+                            <StackPanel>
+                                <TextBlock Text="数据库状态" Foreground="{StaticResource DiagMutedBrush}" />
+                                <TextBlock Text="{Binding Overview.DatabaseStatus}" FontSize="18" FontWeight="SemiBold" Margin="0,8,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="行情与缓存">
+                <DataGrid ItemsSource="{Binding MarketRows}" Margin="0,12,0,0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="数据源" Binding="{Binding Source}" Width="120" />
+                        <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="100" />
+                        <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="150" />
+                        <DataGridTextColumn Header="市场类型" Binding="{Binding MarketType}" Width="90" />
+                        <DataGridTextColumn Header="价格/净值" Binding="{Binding Price, StringFormat={}{0:0.####}}" Width="95" />
+                        <DataGridTextColumn Header="昨收/前值" Binding="{Binding LastClose, StringFormat={}{0:0.####}}" Width="95" />
+                        <DataGridTextColumn Header="行情时间" Binding="{Binding QuoteTime}" Width="150" />
+                        <DataGridTextColumn Header="接收时间" Binding="{Binding ReceivedAt}" Width="150" />
+                        <DataGridTextColumn Header="数据年龄" Binding="{Binding Age}" Width="110" />
+                        <DataGridTextColumn Header="行情状态" Binding="{Binding QuoteStatus}" Width="90" />
+                        <DataGridTextColumn Header="数据源状态" Binding="{Binding SourceStatus}" Width="105" />
+                        <DataGridTextColumn Header="失败次数" Binding="{Binding FailureCount}" Width="90" />
+                        <DataGridTextColumn Header="冷却截止时间" Binding="{Binding CooldownUntil}" Width="150" />
+                        <DataGridTextColumn Header="最近错误" Binding="{Binding LastError}" Width="240" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="今日盈亏审计">
+                <Grid Margin="0,12,0,0" ClipToBounds="True">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid ItemsSource="{Binding PnlItems}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="策略代码" Binding="{Binding StrategyCode}" Width="95" />
+                            <DataGridTextColumn Header="实际代码" Binding="{Binding ActualCode}" Width="95" />
+                            <DataGridTextColumn Header="标的名称" Binding="{Binding InstrumentName}" Width="140" />
+                            <DataGridCheckBoxColumn Header="是否计入" Binding="{Binding IncludedToday}" Width="80" />
+                            <DataGridTextColumn Header="计入金额" Binding="{Binding IncludedAmount, StringFormat={}{0:N2}}" Width="100" />
+                            <DataGridTextColumn Header="原因" Binding="{Binding ReasonText}" Width="220" />
+                            <DataGridTextColumn Header="候选当日盈亏" Binding="{Binding CandidateDailyPnl, StringFormat={}{0:N2}}" Width="115" />
+                            <DataGridTextColumn Header="数量" Binding="{Binding Quantity, StringFormat={}{0:0.####}}" Width="90" />
+                            <DataGridTextColumn Header="行情时间" Binding="{Binding QuoteTime}" Width="145" />
+                            <DataGridTextColumn Header="接收时间" Binding="{Binding ReceivedAt}" Width="145" />
+                            <DataGridTextColumn Header="计算时间" Binding="{Binding CalculatedAt}" Width="145" />
+                            <DataGridTextColumn Header="数据源" Binding="{Binding Source}" Width="110" />
+                            <DataGridTextColumn Header="市场类型" Binding="{Binding MarketType}" Width="90" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Border Grid.Row="1" Background="{StaticResource DiagPanelBrush}" BorderBrush="{StaticResource DiagBorderBrush}" BorderThickness="1" Padding="12" Margin="0,10,0,0">
+                        <WrapPanel>
+                            <TextBlock Text="诊断有效项合计：" Foreground="{StaticResource DiagMutedBrush}" />
+                            <TextBlock Text="{Binding PnlSummary.DiagnosticsIncludedTotal, StringFormat={}{0:N2}}" Margin="4,0,18,0" />
+                            <TextBlock Text="主界面今日盈亏口径合计：" Foreground="{StaticResource DiagMutedBrush}" />
+                            <TextBlock Text="{Binding PnlSummary.MainWindowPathTotal, StringFormat={}{0:N2}}" Margin="4,0,18,0" />
+                            <TextBlock Text="一致性：" Foreground="{StaticResource DiagMutedBrush}" />
+                            <TextBlock Text="{Binding PnlSummary.ConsistencyStatus}" Margin="4,0,0,0" />
+                        </WrapPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="运行日志">
+                <DataGrid ItemsSource="{Binding RuntimeLogs}" Margin="0,12,0,0" SelectionMode="Extended">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="时间" Binding="{Binding Time}" Width="150" />
+                        <DataGridTextColumn Header="级别" Binding="{Binding Level}" Width="80" />
+                        <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="150" />
+                        <DataGridTextColumn Header="消息" Binding="{Binding Message}" Width="260" />
+                        <DataGridTextColumn Header="异常摘要" Binding="{Binding ExceptionSummary}" Width="*" MinWidth="260" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="程序环境">
+                <Grid Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="190" />
+                        <ColumnDefinition Width="*" MinWidth="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                        <RowDefinition Height="34" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="程序版本" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Environment.AppVersion}" />
+                    <TextBlock Grid.Row="1" Text="完整信息版本" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Environment.AssemblyInformationalVersion}" />
+                    <TextBlock Grid.Row="2" Text="程序路径" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Environment.ExePath}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Grid.Row="3" Text="数据库路径" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Environment.DatabasePath}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Grid.Row="4" Text="当前时间" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Environment.CurrentTime}" />
+                    <TextBlock Grid.Row="5" Text="进程启动时间" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Environment.ProcessStartTime}" />
+                    <TextBlock Grid.Row="6" Text="进程运行时长" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding Environment.ProcessUptime}" />
+                    <TextBlock Grid.Row="7" Text="刷新间隔" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding Environment.RefreshInterval}" />
+                    <TextBlock Grid.Row="8" Text=".NET 版本" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding Environment.DotNetVersion}" />
+                    <TextBlock Grid.Row="9" Text="操作系统" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding Environment.OperatingSystem}" />
+                    <TextBlock Grid.Row="10" Text="进程架构" Foreground="{StaticResource DiagMutedBrush}" />
+                    <TextBlock Grid.Row="10" Grid.Column="1" Text="{Binding Environment.ProcessArchitecture}" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <TextBlock Grid.Row="3"
+                   x:Name="DiagnosticsStatusText"
+                   Margin="0,10,0,0"
+                   Foreground="{StaticResource DiagMutedBrush}" />
+    </Grid>
+</UserControl>

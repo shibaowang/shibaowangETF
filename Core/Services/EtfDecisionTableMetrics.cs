@@ -143,6 +143,113 @@ public static class EtfDecisionTableMetrics
         return includedAny ? total : null;
     }
 
+    public static IReadOnlyList<NaturalDayPnlEvaluationItem> EvaluateNaturalDayValuationItems(
+        IEnumerable<PositionReplayStateRecord> replayPositions,
+        IEnumerable<MarketQuoteRecord> quotes,
+        DateTime now)
+        => EvaluateNaturalDayValuationItems(
+            replayPositions,
+            Array.Empty<OtcPositionReplayStateRecord>(),
+            quotes,
+            now);
+
+    public static IReadOnlyList<NaturalDayPnlEvaluationItem> EvaluateNaturalDayValuationItems(
+        IEnumerable<PositionReplayStateRecord> replayPositions,
+        IEnumerable<OtcPositionReplayStateRecord> otcPositions,
+        IEnumerable<MarketQuoteRecord> quotes,
+        DateTime now)
+    {
+        IReadOnlyList<MarketQuoteRecord> quoteList = quotes as IReadOnlyList<MarketQuoteRecord> ?? quotes.ToArray();
+        (DateTime startInclusive, DateTime endExclusive) = GetNaturalDayRange(now);
+        DateTime? latestEveningSinaFundQuoteDate = ResolveLatestEveningSinaFundQuoteDate(quoteList, startInclusive, endExclusive);
+        bool hasEtfQuotes = quoteList.Any(IsEtfQuote);
+        bool hasCurrentDayEtfQuote = HasCurrentDayEtfQuote(quoteList, startInclusive, endExclusive);
+        var items = new List<NaturalDayPnlEvaluationItem>();
+        var itemIndexesByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var includedOtcKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (PositionReplayStateRecord position in replayPositions)
+        {
+            MarketQuoteRecord? quote = FindValuationQuote(position, quoteList);
+            ValuationUpdateDecision decision = EvaluateValuationUpdate(
+                    quote,
+                    startInclusive,
+                    endExclusive,
+                    latestEveningSinaFundQuoteDate,
+                    hasEtfQuotes,
+                    hasCurrentDayEtfQuote);
+            double? dailyPnl = decision.Included
+                ? ResolveDailyPnl(position.DailyPnl, position.Quantity, quote)
+                : null;
+            if (decision.Included && !HasFiniteValue(dailyPnl))
+            {
+                decision = new ValuationUpdateDecision(false, "NO_VALID_DAILY_PNL", "无有效 daily_pnl");
+            }
+
+            bool included = decision.Included && HasFiniteValue(dailyPnl);
+            if (included && IsOtcReplacementPosition(position))
+            {
+                includedOtcKeys.Add(BuildPositionKey(position.StrategyCode, position.ActualCode));
+            }
+
+            AddOrMergeEvaluationItem(items, itemIndexesByKey, CreateEvaluationItem(
+                position.StrategyCode,
+                position.ActualCode,
+                ResolveInstrumentName(position.ActualCode, quote),
+                position.Source,
+                quote?.MarketType ?? string.Empty,
+                position.Quantity,
+                dailyPnl,
+                quote,
+                position.CalculatedAt,
+                included,
+                included ? dailyPnl : null,
+                decision));
+        }
+
+        foreach (OtcPositionReplayStateRecord position in otcPositions)
+        {
+            string positionKey = BuildPositionKey(position.StrategyCode, position.ActualCode);
+            if (includedOtcKeys.Contains(positionKey))
+            {
+                continue;
+            }
+
+            MarketQuoteRecord? quote = FindOtcValuationQuote(position.ActualCode, quoteList);
+            ValuationUpdateDecision decision = EvaluateValuationUpdate(
+                    quote,
+                    startInclusive,
+                    endExclusive,
+                    latestEveningSinaFundQuoteDate,
+                    hasEtfQuotes,
+                    hasCurrentDayEtfQuote);
+            double? dailyPnl = decision.Included
+                ? ResolveDailyPnl(position.DailyPnl, position.Quantity, quote)
+                : null;
+            if (decision.Included && !HasFiniteValue(dailyPnl))
+            {
+                decision = new ValuationUpdateDecision(false, "NO_VALID_DAILY_PNL", "无有效 daily_pnl");
+            }
+
+            bool included = decision.Included && HasFiniteValue(dailyPnl);
+            AddOrMergeEvaluationItem(items, itemIndexesByKey, CreateEvaluationItem(
+                position.StrategyCode,
+                position.ActualCode,
+                ResolveInstrumentName(position.ActualCode, quote),
+                OtcReplacementSource,
+                quote?.MarketType ?? "OTC",
+                position.Quantity,
+                dailyPnl,
+                quote,
+                position.CalculatedAt,
+                included,
+                included ? dailyPnl : null,
+                decision));
+        }
+
+        return items;
+    }
+
     public static bool IsValuationUpdatedInRange(MarketQuoteRecord? quote, DateTime startInclusive, DateTime endExclusive)
         => IsValuationUpdatedInRange(
             quote,
@@ -171,15 +278,30 @@ public static class EtfDecisionTableMetrics
         DateTime? latestEveningSinaFundQuoteDate,
         bool hasEtfQuotes,
         bool hasCurrentDayEtfQuote)
+        => EvaluateValuationUpdate(
+            quote,
+            startInclusive,
+            endExclusive,
+            latestEveningSinaFundQuoteDate,
+            hasEtfQuotes,
+            hasCurrentDayEtfQuote).Included;
+
+    private static ValuationUpdateDecision EvaluateValuationUpdate(
+        MarketQuoteRecord? quote,
+        DateTime startInclusive,
+        DateTime endExclusive,
+        DateTime? latestEveningSinaFundQuoteDate,
+        bool hasEtfQuotes,
+        bool hasCurrentDayEtfQuote)
     {
         if (quote is null)
         {
-            return false;
+            return new ValuationUpdateDecision(false, "NO_MATCHING_QUOTE", "未找到匹配行情");
         }
 
         if (IsSinaFundQuote(quote))
         {
-            return IsSinaFundValuationUpdatedInRange(
+            return EvaluateSinaFundValuationUpdate(
                 quote,
                 startInclusive,
                 endExclusive,
@@ -189,12 +311,32 @@ public static class EtfDecisionTableMetrics
         }
 
         DateTime? valuationTime = ResolveMarketQuoteValuationTime(quote);
-        return valuationTime.HasValue
-               && valuationTime.Value >= startInclusive
-               && valuationTime.Value < endExclusive;
+        if (!valuationTime.HasValue)
+        {
+            return new ValuationUpdateDecision(false, "QUOTE_TIME_MISSING", "quote_time 缺失");
+        }
+
+        if (valuationTime.Value >= startInclusive && valuationTime.Value < endExclusive)
+        {
+            string reasonCode = IsEtfQuote(quote) ? "VALID_ETF_TODAY_QUOTE" : "VALID_TODAY_QUOTE";
+            string reasonText = IsEtfQuote(quote) ? "有效 ETF 当日行情" : "有效当日行情";
+            return new ValuationUpdateDecision(true, reasonCode, reasonText);
+        }
+
+        DateTime? receivedAt = ParseTime(quote.ReceivedAt);
+        if (IsEtfQuote(quote)
+            && receivedAt.HasValue
+            && receivedAt.Value >= startInclusive
+            && receivedAt.Value < endExclusive
+            && valuationTime.Value < startInclusive)
+        {
+            return new ValuationUpdateDecision(false, "ETF_STALE_QUOTE_REFETCHED", "ETF 旧行情重新接收");
+        }
+
+        return new ValuationUpdateDecision(false, "QUOTE_TIME_OUTSIDE_TODAY", "quote_time 不属于今日自然日");
     }
 
-    private static bool IsSinaFundValuationUpdatedInRange(
+    private static ValuationUpdateDecision EvaluateSinaFundValuationUpdate(
         MarketQuoteRecord quote,
         DateTime startInclusive,
         DateTime endExclusive,
@@ -205,46 +347,51 @@ public static class EtfDecisionTableMetrics
         DateTime? quoteTime = ParseTime(quote.QuoteTime);
         if (!quoteTime.HasValue)
         {
-            return false;
+            return new ValuationUpdateDecision(false, "QUOTE_TIME_MISSING", "quote_time 缺失");
         }
 
         DateTime quoteDate = quoteTime.Value.Date;
         if (quoteDate == startInclusive.Date)
         {
-            return true;
+            return new ValuationUpdateDecision(true, "VALID_SINA_FUND_NAV_DATE", "有效工作日晚间 NAV 事件");
         }
 
         DateTime? receivedAt = ParseTime(quote.ReceivedAt);
         if (!receivedAt.HasValue || receivedAt.Value < startInclusive || receivedAt.Value >= endExclusive)
         {
-            return false;
+            return new ValuationUpdateDecision(false, "SINA_FUND_RECEIVED_OUTSIDE_TODAY", "quote_time 不属于今日自然日");
         }
 
         // SINA_FUND cache rows are upserted. A non-trading re-fetch can refresh
         // received_at for an old NAV date, but that is not a new PnL event.
         if (IsWeekend(receivedAt.Value.Date))
         {
-            return false;
+            return new ValuationUpdateDecision(false, "SINA_FUND_WEEKEND_OLD_NAV_REFETCH", "周末重新接收旧 NAV");
         }
 
         if (hasEtfQuotes && !hasCurrentDayEtfQuote)
         {
-            return false;
+            return new ValuationUpdateDecision(false, "SINA_FUND_MARKET_CLOSED_OLD_NAV_REFETCH", "休市日重新接收旧 NAV");
         }
 
         if (quoteDate != PreviousWeekday(receivedAt.Value.Date))
         {
-            return false;
+            return new ValuationUpdateDecision(false, "SINA_FUND_OLD_NAV_REFETCH", "SINA_FUND 旧 NAV 重新接收");
         }
 
         DateTime eveningWindowStart = startInclusive.Date.Add(SinaFundEveningWindowStart);
         if (receivedAt.Value < eveningWindowStart)
         {
-            return false;
+            return new ValuationUpdateDecision(false, "SINA_FUND_BEFORE_EVENING_NAV", "SINA_FUND 非晚间 NAV 事件");
         }
 
-        return latestEveningSinaFundQuoteDate.HasValue
-               && quoteDate == latestEveningSinaFundQuoteDate.Value.Date;
+        if (latestEveningSinaFundQuoteDate.HasValue
+            && quoteDate == latestEveningSinaFundQuoteDate.Value.Date)
+        {
+            return new ValuationUpdateDecision(true, "VALID_SINA_FUND_EVENING_NAV", "有效工作日晚间 NAV 事件");
+        }
+
+        return new ValuationUpdateDecision(false, "SINA_FUND_OLDER_NAV_BATCH", "SINA_FUND 旧 NAV 重新接收");
     }
 
     private static DateTime? ResolveLatestEveningSinaFundQuoteDate(
@@ -270,6 +417,80 @@ public static class EtfDecisionTableMetrics
             .DefaultIfEmpty(null)
             .Max();
     }
+
+    private static NaturalDayPnlEvaluationItem CreateEvaluationItem(
+        string strategyCode,
+        string actualCode,
+        string instrumentName,
+        string source,
+        string marketType,
+        double quantity,
+        double? candidateDailyPnl,
+        MarketQuoteRecord? quote,
+        string? calculatedAt,
+        bool included,
+        double? includedAmount,
+        ValuationUpdateDecision decision)
+        => new(
+            strategyCode,
+            actualCode,
+            instrumentName,
+            source,
+            marketType,
+            quantity,
+            candidateDailyPnl,
+            quote?.QuoteTime,
+            quote?.ReceivedAt,
+            calculatedAt,
+            included,
+            includedAmount,
+            decision.ReasonCode,
+            decision.ReasonText);
+
+    private static void AddOrMergeEvaluationItem(
+        List<NaturalDayPnlEvaluationItem> items,
+        Dictionary<string, int> itemIndexesByKey,
+        NaturalDayPnlEvaluationItem candidate)
+    {
+        string key = BuildPositionKey(candidate.StrategyCode, candidate.ActualCode);
+        if (!itemIndexesByKey.TryGetValue(key, out int existingIndex))
+        {
+            itemIndexesByKey[key] = items.Count;
+            items.Add(candidate);
+            return;
+        }
+
+        NaturalDayPnlEvaluationItem existing = items[existingIndex];
+        if (ShouldReplaceEvaluationItem(existing, candidate))
+        {
+            items[existingIndex] = candidate;
+        }
+    }
+
+    private static bool ShouldReplaceEvaluationItem(
+        NaturalDayPnlEvaluationItem existing,
+        NaturalDayPnlEvaluationItem candidate)
+    {
+        if (candidate.IncludedToday != existing.IncludedToday)
+        {
+            return candidate.IncludedToday;
+        }
+
+        int existingEvidence = EvaluationEvidenceScore(existing);
+        int candidateEvidence = EvaluationEvidenceScore(candidate);
+        return candidateEvidence > existingEvidence;
+    }
+
+    private static int EvaluationEvidenceScore(NaturalDayPnlEvaluationItem item)
+        => (item.CandidateDailyPnl.HasValue ? 4 : 0)
+           + (!string.IsNullOrWhiteSpace(item.QuoteTime) ? 2 : 0)
+           + (!string.IsNullOrWhiteSpace(item.ReceivedAt) ? 2 : 0)
+           + (!string.IsNullOrWhiteSpace(item.CalculatedAt) ? 1 : 0);
+
+    private static string ResolveInstrumentName(string actualCode, MarketQuoteRecord? quote)
+        => !string.IsNullOrWhiteSpace(quote?.DisplayName)
+            ? quote!.DisplayName!
+            : actualCode;
 
     private static bool HasCurrentDayEtfQuote(
         IEnumerable<MarketQuoteRecord> quotes,
@@ -384,6 +605,8 @@ public static class EtfDecisionTableMetrics
 
     private static bool HasFiniteValue(double? value)
         => value.HasValue && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value);
+
+    private readonly record struct ValuationUpdateDecision(bool Included, string ReasonCode, string ReasonText);
 }
 
 public sealed record EtfPositionCostMetrics(double TotalQuantity, double TotalCostAmount, double AverageCost);
