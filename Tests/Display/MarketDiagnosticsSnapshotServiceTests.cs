@@ -13,6 +13,7 @@ public sealed class MarketDiagnosticsSnapshotServiceTests
         try
         {
             var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+            SaveStrategy(repository, "159941", "100.NDX100", enabled: true);
             repository.SaveMarketQuote(new MarketQuoteRecord
             {
                 Symbol = "159941",
@@ -46,11 +47,187 @@ public sealed class MarketDiagnosticsSnapshotServiceTests
             Assert.Equal("OK", marketRow.SourceStatus);
             Assert.Single(snapshot.RuntimeLogs);
             Assert.Equal(databasePath, snapshot.Environment.DatabasePath);
-            Assert.Equal("V8.1.0", snapshot.Environment.AppVersion);
-            Assert.Contains("8.1.0", snapshot.Environment.AssemblyInformationalVersion);
+            Assert.Equal("V8.1.1", snapshot.Environment.AppVersion);
+            Assert.Contains("8.1.1", snapshot.Environment.AssemblyInformationalVersion);
             Assert.Equal(1, snapshot.Overview.HistoricalRuntimeLogCount);
             Assert.Equal(0, snapshot.Overview.RecentErrorCount);
             Assert.Equal("正常", snapshot.Overview.OverallStatus);
+        }
+        finally
+        {
+            TryDeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_OrphanedQuoteIsNotDisplayedCountedOrDeleted()
+    {
+        string databasePath = CreateTempDatabasePath();
+        try
+        {
+            var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+            repository.SaveMarketQuote(Quote(
+                "600001",
+                "ETF",
+                "TENCENT_QT",
+                "2026-06-15 13:35:24",
+                "2026-06-15 13:35:27"));
+
+            MarketDiagnosticsSnapshot snapshot = CreateService(repository).BuildSnapshot();
+
+            Assert.Empty(snapshot.MarketRows);
+            Assert.Equal(0, snapshot.Overview.StaleQuoteCount);
+            Assert.Equal("正常", snapshot.Overview.OverallStatus);
+            MarketQuoteRecord cached = Assert.Single(repository.ReadMarketQuoteCache());
+            Assert.Equal("600001", cached.Symbol);
+
+            string serviceCode = ReadRepositoryFile(Path.Combine("Core", "Services", "MarketDiagnosticsSnapshotService.cs"));
+            Assert.DoesNotContain("513110", serviceCode, StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_EnabledStrategyStaleQuoteStillProducesWarning()
+    {
+        string databasePath = CreateTempDatabasePath();
+        try
+        {
+            var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+            SaveStrategy(repository, "159941", "100.NDX100", enabled: true);
+            repository.SaveMarketQuote(Quote(
+                "159941",
+                "ETF",
+                "TENCENT_QT",
+                "2026-07-06 15:00:00",
+                "2026-07-06 15:00:05"));
+
+            MarketDiagnosticsSnapshot snapshot = CreateService(repository).BuildSnapshot();
+
+            DiagnosticsMarketRow row = Assert.Single(snapshot.MarketRows);
+            Assert.Equal("159941", row.Code);
+            Assert.Equal("过期", row.QuoteStatus);
+            Assert.Equal(1, snapshot.Overview.StaleQuoteCount);
+            Assert.Equal("警告", snapshot.Overview.OverallStatus);
+        }
+        finally
+        {
+            TryDeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_EnabledStrategyIndexAndEnabledOtcChannelAreActive()
+    {
+        string databasePath = CreateTempDatabasePath();
+        try
+        {
+            var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+            SaveStrategy(repository, "159941", "100.SPX", enabled: true);
+            repository.SaveOtcChannel(new OtcChannelRecord
+            {
+                StrategyCode = "159941",
+                OtcCode = "270042",
+                ClassType = "A类",
+                Enabled = true,
+                Priority = 1
+            });
+            repository.SaveMarketQuote(Quote(
+                "100.SPX",
+                "INDEX",
+                "EASTMONEY_PUSH2",
+                "2026-07-08 10:30:00",
+                "2026-07-08 10:30:05"));
+            repository.SaveMarketQuote(Quote(
+                "270042",
+                "OTC",
+                "SINA_FUND",
+                "2026-07-08 00:00:00",
+                "2026-07-08 10:30:05"));
+
+            MarketDiagnosticsSnapshot snapshot = CreateService(repository).BuildSnapshot();
+
+            Assert.Contains(snapshot.MarketRows, row => row.Code == "100.SPX" && row.MarketType == "INDEX");
+            Assert.Contains(snapshot.MarketRows, row => row.Code == "270042" && row.MarketType == "OTC");
+        }
+        finally
+        {
+            TryDeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_DisabledStrategyAndItsOtcChannelRemainHistoricalCache()
+    {
+        string databasePath = CreateTempDatabasePath();
+        try
+        {
+            var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+            SaveStrategy(repository, "600002", "100.SPX", enabled: false);
+            repository.SaveOtcChannel(new OtcChannelRecord
+            {
+                StrategyCode = "600002",
+                OtcCode = "000001",
+                ClassType = "A类",
+                Enabled = true,
+                Priority = 1
+            });
+            repository.SaveMarketQuote(Quote(
+                "600002",
+                "ETF",
+                "TENCENT_QT",
+                "2026-06-15 15:00:00",
+                "2026-06-15 15:00:05"));
+            repository.SaveMarketQuote(Quote(
+                "000001",
+                "OTC",
+                "SINA_FUND",
+                "2026-06-15 00:00:00",
+                "2026-06-15 20:00:00"));
+
+            MarketDiagnosticsSnapshot snapshot = CreateService(repository).BuildSnapshot();
+
+            Assert.DoesNotContain(snapshot.MarketRows, row => row.Code is "600002" or "000001");
+            Assert.Equal(0, snapshot.Overview.StaleQuoteCount);
+            Assert.Equal(2, repository.ReadMarketQuoteCache().Count);
+        }
+        finally
+        {
+            TryDeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_ExchangePositionActualCodeIsActiveWithoutStrategyConfig()
+    {
+        string databasePath = CreateTempDatabasePath();
+        try
+        {
+            var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+            repository.SavePositionState(new PositionStateRecord
+            {
+                StrategyCode = "legacy",
+                ActualCode = "600003",
+                Source = "场内ETF",
+                Quantity = 100,
+                CostAmount = 100,
+                AdjFactor = 1
+            });
+            repository.SaveMarketQuote(Quote(
+                "600003",
+                "ETF",
+                "TENCENT_QT",
+                "2026-07-08 10:30:00",
+                "2026-07-08 10:30:05"));
+
+            MarketDiagnosticsSnapshot snapshot = CreateService(repository).BuildSnapshot();
+
+            DiagnosticsMarketRow row = Assert.Single(snapshot.MarketRows);
+            Assert.Equal("600003", row.Code);
+            Assert.Equal("正常", row.QuoteStatus);
         }
         finally
         {
@@ -272,6 +449,43 @@ public sealed class MarketDiagnosticsSnapshotServiceTests
         Directory.CreateDirectory(directory);
         return Path.Combine(directory, LocalDatabase.DatabaseFileName);
     }
+
+    private static MarketDiagnosticsSnapshotService CreateService(LocalDataRepository repository)
+        => new(
+            repository,
+            () => new DateTime(2026, 7, 8, 10, 31, 0),
+            () => new DateTime(2026, 7, 8, 9, 0, 0));
+
+    private static void SaveStrategy(
+        LocalDataRepository repository,
+        string code,
+        string? indexSecId,
+        bool enabled)
+        => repository.SaveStrategyConfig(new StrategyConfigRecord
+        {
+            Code = code,
+            Name = code,
+            IndexSecId = indexSecId,
+            Enabled = enabled
+        });
+
+    private static MarketQuoteRecord Quote(
+        string symbol,
+        string marketType,
+        string source,
+        string quoteTime,
+        string receivedAt)
+        => new()
+        {
+            Symbol = symbol,
+            DisplayName = symbol,
+            MarketType = marketType,
+            Source = source,
+            Price = 1.0,
+            LastClose = 1.0,
+            QuoteTime = quoteTime,
+            ReceivedAt = receivedAt
+        };
 
     private static void InsertRuntimeLog(
         LocalDataRepository repository,

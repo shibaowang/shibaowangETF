@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using CrossETF.Terminal.UiShell.Reference.Core.Models;
+using CrossETF.Terminal.UiShell.Reference.Infrastructure.Market;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Persistence;
 
 namespace CrossETF.Terminal.UiShell.Reference.Core.Services;
@@ -41,6 +42,9 @@ public sealed class MarketDiagnosticsSnapshotService
             IReadOnlyList<RuntimeLogRecord> runtimeLogs = _repository.ReadRecentRuntimeLogs(500);
             IReadOnlyList<PositionReplayStateRecord> replayPositions = _repository.ReadPositionReplayStates();
             IReadOnlyList<OtcPositionReplayStateRecord> otcPositions = _repository.ReadOtcPositionReplayStates();
+            IReadOnlyList<StrategyConfigRecord> strategies = _repository.ReadStrategyConfigs();
+            IReadOnlyList<PositionStateRecord> positions = _repository.ReadPositionStates();
+            IReadOnlyList<OtcChannelRecord> otcChannels = _repository.ReadOtcChannels();
 
             IReadOnlyList<NaturalDayPnlEvaluationItem> pnlItems = EtfDecisionTableMetrics.EvaluateNaturalDayValuationItems(
                 replayPositions,
@@ -54,7 +58,8 @@ public sealed class MarketDiagnosticsSnapshotService
                 quotes,
                 now);
 
-            IReadOnlyList<DiagnosticsMarketRow> marketRows = BuildMarketRows(quotes, sourceStatuses, now);
+            IReadOnlySet<string> activeMarketKeys = BuildActiveMarketKeys(strategies, positions, otcChannels);
+            IReadOnlyList<DiagnosticsMarketRow> marketRows = BuildMarketRows(quotes, sourceStatuses, activeMarketKeys, now);
             IReadOnlyList<DiagnosticsRuntimeLogRow> warningRows = runtimeLogs
                 .Where(IsWarningOrError)
                 .Take(100)
@@ -138,6 +143,7 @@ public sealed class MarketDiagnosticsSnapshotService
     private IReadOnlyList<DiagnosticsMarketRow> BuildMarketRows(
         IReadOnlyList<MarketQuoteRecord> quotes,
         IReadOnlyList<MarketSourceStatusRecord> sourceStatuses,
+        IReadOnlySet<string> activeMarketKeys,
         DateTime now)
     {
         var sourceByName = sourceStatuses
@@ -145,6 +151,7 @@ public sealed class MarketDiagnosticsSnapshotService
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         return quotes
+            .Where(quote => activeMarketKeys.Contains(BuildMarketKey(quote.Symbol, quote.MarketType)))
             .OrderBy(quote => quote.MarketType, StringComparer.OrdinalIgnoreCase)
             .ThenBy(quote => quote.Symbol, StringComparer.OrdinalIgnoreCase)
             .Select(quote =>
@@ -170,6 +177,78 @@ public sealed class MarketDiagnosticsSnapshotService
                     sourceStatus?.LastError);
             })
             .ToArray();
+    }
+
+    private static IReadOnlySet<string> BuildActiveMarketKeys(
+        IReadOnlyList<StrategyConfigRecord> strategies,
+        IReadOnlyList<PositionStateRecord> positions,
+        IReadOnlyList<OtcChannelRecord> otcChannels)
+    {
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        StrategyConfigRecord[] enabledStrategies = strategies
+            .Where(strategy => strategy.Enabled)
+            .ToArray();
+        var enabledStrategyCodes = enabledStrategies
+            .Select(strategy => MarketSymbolNormalizer.DigitsOnly(strategy.Code))
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (StrategyConfigRecord strategy in enabledStrategies)
+        {
+            AddMarketKey(keys, strategy.Code, "ETF");
+            if (!string.IsNullOrWhiteSpace(strategy.IndexSecId))
+            {
+                AddMarketKey(
+                    keys,
+                    MarketSymbolNormalizer.NormalizeEastMoneySecId(strategy.IndexSecId, true),
+                    "INDEX");
+            }
+        }
+
+        foreach (PositionStateRecord position in positions.Where(position =>
+                     string.Equals(position.Source, "场内ETF", StringComparison.Ordinal)))
+        {
+            AddMarketKey(keys, position.ActualCode, "ETF");
+        }
+
+        foreach (OtcChannelRecord channel in otcChannels.Where(channel =>
+                     channel.Enabled
+                     && enabledStrategyCodes.Contains(MarketSymbolNormalizer.DigitsOnly(channel.StrategyCode))))
+        {
+            AddMarketKey(keys, channel.OtcCode, "OTC");
+        }
+
+        foreach (MarketWatchItem item in MarketSymbolNormalizer.DefaultTopBarItems())
+        {
+            AddMarketKey(keys, item.Symbol, item.MarketType);
+        }
+
+        return keys;
+    }
+
+    private static void AddMarketKey(ISet<string> keys, string? symbol, string? marketType)
+    {
+        string key = BuildMarketKey(symbol, marketType);
+        if (!string.IsNullOrEmpty(key))
+        {
+            keys.Add(key);
+        }
+    }
+
+    private static string BuildMarketKey(string? symbol, string? marketType)
+    {
+        if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(marketType))
+        {
+            return string.Empty;
+        }
+
+        string normalizedMarketType = marketType.Trim().ToUpperInvariant();
+        string normalizedSymbol = normalizedMarketType is "ETF" or "OTC"
+            ? MarketSymbolNormalizer.DigitsOnly(symbol)
+            : symbol.Trim();
+        return string.IsNullOrWhiteSpace(normalizedSymbol)
+            ? string.Empty
+            : normalizedMarketType + "|" + normalizedSymbol;
     }
 
     private DiagnosticsEnvironmentInfo BuildEnvironmentInfo(DateTime now, DateTime processStartTime)
