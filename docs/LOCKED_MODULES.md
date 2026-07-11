@@ -2,7 +2,7 @@
 
 本文档用于约束后续 Codex 任务：任何新修复开始前，都应先阅读本文件。除非用户明确授权，后续任务不得修改本文档列出的已收口行为。
 
-最近锁定任务：`TASK-UI-INTERACTION-039`
+最近锁定任务：`TASK-DIAG-006-PATCH`
 
 ## 1. 已锁定模块
 
@@ -638,6 +638,52 @@ Protection tests:
 - TradeLog is not written.
 - `order_draft_state` is not changed.
 - No main-window manual refresh button is added.
+
+### 1.23 TASK-DIAG-006：风险中心运行诊断模块
+
+锁定基线：
+
+- 版本：`v8.1.1`
+- 主功能提交：`82562e1`（`Add risk center runtime diagnostics`）
+- 历史孤立行情缓存补丁提交：`666d351`（`Ignore orphan quote cache in diagnostics health`）
+- 测试基线：`893/893`
+
+锁定行为：
+
+1. 运行诊断只能嵌入现有 `RiskCenterWindow` 风险中心。
+2. 不得新增左侧一级诊断模块。
+3. 不得新增独立 `MarketDiagnosticsWindow` 顶层窗口。
+4. 必须保留“诊断总览、行情与缓存、今日盈亏审计、运行日志、程序环境”五个诊断页签。
+5. “重新读取本地状态”只能读取 SQLite、进程及程序集信息，并重新组装只读诊断快照。
+6. 运行诊断不得联网、不得触发行情刷新、不得写数据库、不得写 TradeLog。
+7. 今日盈亏审计不得复制第二套今日/当日盈亏规则。
+8. 诊断有效项合计必须与主界面今日盈亏业务入口保持一致。
+9. 当前行情健康列表只能展示和统计当前活动行情。
+10. 活动行情集合必须按以下通用来源构建：
+    - 启用策略 ETF；
+    - 启用策略的 `index_sec_id`；
+    - 属于启用策略且已启用的 OTC 通道；
+    - `MarketSymbolNormalizer.DefaultTopBarItems()` 固定行情；
+    - `position_state` 中仍需估值的场内 ETF 实际代码。
+11. 已删除或停用配置的历史孤立缓存：
+    - 可以继续保留在 SQLite；
+    - 不进入当前行情健康列表；
+    - 不计入 `StaleQuoteCount`；
+    - 不影响 `OverallStatus`；
+    - 不触发行情请求；
+    - 不得通过具体证券代码硬编码排除。
+12. 当前活动行情自身过期时仍必须显示过期状态并正常产生警告。
+13. 不得自动删除或清空 `market_quote_cache`。
+14. 不得修改行情路由、parser、router 或 scheduler 来掩盖诊断展示问题。
+15. 风险中心公共关闭按钮必须在风险概览和运行诊断中始终可见；“重新读取本地状态”“刷新日志”“清空日志”三个操作按钮的深色完整视觉状态保持锁定。
+16. 本模块不得影响 TradeLog、账户回放、策略、委托、`ManualDataEntryWindow`、白闪或标题栏逻辑，也不得新增主界面手动刷新按钮。
+
+只读边界：
+
+- 历史孤立行情缓存只在诊断视图和健康统计中排除，数据库记录继续保留。
+- `MarketDiagnosticsSnapshotService` 不得调用 save、write、delete、行情 refresh、live probe 或网络客户端。
+- 当前数据源异常、数据库读取失败、今日盈亏审计不一致和活动行情过期仍必须如实显示。
+- 历史 `runtime_log` 可以保留展示，但旧错误不得永久污染当前整体状态。
 
 ## 2. 后续任务解锁流程
 
