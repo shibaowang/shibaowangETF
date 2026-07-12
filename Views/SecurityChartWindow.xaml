@@ -176,8 +176,9 @@
 
             <Grid Grid.Row="2" Margin="14,0,14,6">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition />
-                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="IntradayButton" Content="分时" Style="{StaticResource ChartButtonStyle}" Margin="0,0,8,0" Click="PeriodButton_Click" />
@@ -185,7 +186,16 @@
                     <Button x:Name="WeeklyButton" Content="周K" Style="{StaticResource ChartButtonStyle}" Margin="0,0,8,0" Click="PeriodButton_Click" />
                     <Button x:Name="MonthlyButton" Content="月K" Style="{StaticResource ChartButtonStyle}" Click="PeriodButton_Click" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center">
+                    <Button x:Name="Ma5Button" Content="MA5" Style="{StaticResource ChartButtonStyle}" Padding="9,7" Margin="8,0,4,0" Click="MovingAverageButton_Click" />
+                    <Button x:Name="Ma10Button" Content="MA10" Style="{StaticResource ChartButtonStyle}" Padding="9,7" Margin="0,0,4,0" Click="MovingAverageButton_Click" />
+                    <Button x:Name="Ma20Button" Content="MA20" Style="{StaticResource ChartButtonStyle}" Padding="9,7" Margin="0,0,4,0" Click="MovingAverageButton_Click" />
+                    <Button x:Name="Ma60Button" Content="MA60" Style="{StaticResource ChartButtonStyle}" Padding="9,7" Margin="0,0,8,0" Click="MovingAverageButton_Click" />
+                    <Button x:Name="ResetViewButton" Content="复位" Style="{StaticResource ChartButtonStyle}" Padding="10,7" Click="ResetViewButton_Click" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="VolumeButton" Content="成交量" Style="{StaticResource ChartButtonStyle}" Margin="0,0,8,0" Click="SubPanelButton_Click" />
                     <Button x:Name="MacdButton" Content="MACD" Style="{StaticResource ChartButtonStyle}" Click="SubPanelButton_Click" />
                 </StackPanel>
@@ -199,11 +209,46 @@
                     CornerRadius="6"
                     ClipToBounds="True"
                     SnapsToDevicePixels="True">
-                <Canvas x:Name="MainChartCanvas"
-                        Background="{StaticResource ChartPanelBrush}"
-                        ClipToBounds="True"
-                        SnapsToDevicePixels="True"
-                        SizeChanged="ChartCanvas_SizeChanged" />
+                <Grid Background="{StaticResource ChartPanelBrush}"
+                      ClipToBounds="True">
+                    <Canvas x:Name="MainChartCanvas"
+                            Background="{StaticResource ChartPanelBrush}"
+                            ClipToBounds="True"
+                            SnapsToDevicePixels="True"
+                            Focusable="True"
+                            SizeChanged="ChartCanvas_SizeChanged"
+                            MouseWheel="MainChartCanvas_MouseWheel"
+                            MouseLeftButtonDown="MainChartCanvas_MouseLeftButtonDown"
+                            MouseMove="MainChartCanvas_MouseMove"
+                            MouseLeftButtonUp="MainChartCanvas_MouseLeftButtonUp"
+                            MouseLeave="MainChartCanvas_MouseLeave"
+                            LostMouseCapture="MainChartCanvas_LostMouseCapture" />
+                    <TextBlock x:Name="MovingAverageLegendText"
+                               Margin="50,4,16,0"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top"
+                               Foreground="{StaticResource ChartTextBrush}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               IsHitTestVisible="False" />
+                    <Border x:Name="CrosshairInfoBorder"
+                            Margin="50,25,16,0"
+                            Padding="7,4"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            MaxWidth="840"
+                            Background="#E6071724"
+                            BorderBrush="{StaticResource ChartBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Visibility="Collapsed"
+                            IsHitTestVisible="False">
+                        <TextBlock x:Name="CrosshairInfoText"
+                                   Foreground="{StaticResource ChartTextBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                </Grid>
             </Border>
 
             <Border Grid.Row="4"

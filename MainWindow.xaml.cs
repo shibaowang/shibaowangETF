@@ -124,10 +124,18 @@ public partial class MainWindow : Window
             historyCacheSaver: (symbol, marketType, highValue, rawPayload, source)
                 => _repository.SaveMarketHistory(symbol, marketType, highValue, rawPayload, source),
             runtimeLog: (level, module, message) => TryWriteRuntimeLog(level, module, "走势图数据刷新失败", message),
-            scheduler: _marketRequestScheduler);
+            scheduler: _marketRequestScheduler,
+            historyDepthCheckpointReader: key => _repository.ReadAppSetting(key),
+            historyDepthCheckpointWriter: (key, value) => _repository.SaveAppSetting(key, value));
         InitializeComponent();
         VersionText.Text = BuildVersionDisplayText();
-        _chartWindowManager = new ChartWindowManager(this, _chartSubscriptions, _chartRefreshCoordinator);
+        _chartWindowManager = new ChartWindowManager(
+            this,
+            _chartSubscriptions,
+            _chartRefreshCoordinator,
+            () => _tradeLogs,
+            () => _strategies,
+            _marketRefreshCts.Token);
         LoadEtfColumnSettings();
         LoadEtfPinnedSymbols();
         LoadHotkeySettings();

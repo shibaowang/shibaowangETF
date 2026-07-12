@@ -10,4 +10,6 @@ public sealed class EastMoneyHistoryFetchResult
     public double High { get; init; }
     public int PointCount { get; init; }
     public double? LatestDrawdown { get; init; }
+    public bool IsSourceExhausted { get; init; }
+    public int RequestCount { get; init; } = 1;
 }

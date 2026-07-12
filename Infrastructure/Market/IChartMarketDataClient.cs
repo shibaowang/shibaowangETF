@@ -15,4 +15,10 @@ public interface IChartMarketDataClient : IDisposable
         CancellationToken cancellationToken);
 
     Task<EastMoneyHistoryFetchResult> FetchTencentDailyHistoryAsync(string tencentCode, CancellationToken cancellationToken);
+
+    Task<EastMoneyHistoryFetchResult> FetchTencentDailyHistoryDepthAsync(
+        string tencentCode,
+        int targetPointCount,
+        CancellationToken cancellationToken)
+        => FetchTencentDailyHistoryAsync(tencentCode, cancellationToken);
 }

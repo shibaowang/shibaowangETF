@@ -13,6 +13,8 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
     private static readonly TimeSpan KLineRequestInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StandardIntradayCloseCompleteThreshold = new(14, 57, 0);
     private const int BackgroundIntradayMaxRequestsPerTick = 1;
+    private const int DeepHistoryTargetPointCount = 3000;
+    private const string HistoryDepthCheckpointPrefix = "chart_history_depth:";
 
     private readonly ChartSubscriptionService _subscriptions;
     private readonly ChartCache _cache;
@@ -20,10 +22,13 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
     private readonly GlobalMarketRequestScheduler? _scheduler;
     private readonly IChartIntradayCacheStore? _intradayCacheStore;
     private readonly Action<string, string, double?, string, string>? _historyCacheSaver;
+    private readonly Func<string, string?>? _historyDepthCheckpointReader;
+    private readonly Action<string, string>? _historyDepthCheckpointWriter;
     private readonly Func<DateTimeOffset> _nowProvider;
     private readonly Dictionary<string, DateTimeOffset> _lastIntradayRequestAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _lastKLineRequestAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _indexIntradayCatchUpAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DeepHistoryAttemptState> _deepHistoryAttempts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, MarketCircuitBreaker> _breakers = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Action<string, string, string>? _runtimeLog;
@@ -39,7 +44,9 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         Action<string, string, double?, string, string>? historyCacheSaver = null,
         Action<string, string, string>? runtimeLog = null,
         GlobalMarketRequestScheduler? scheduler = null,
-        Func<DateTimeOffset>? nowProvider = null)
+        Func<DateTimeOffset>? nowProvider = null,
+        Func<string, string?>? historyDepthCheckpointReader = null,
+        Action<string, string>? historyDepthCheckpointWriter = null)
     {
         _subscriptions = subscriptions;
         _cache = cache;
@@ -47,6 +54,8 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         _client = client ?? new MarketDataClient(scheduler);
         _intradayCacheStore = intradayCacheStore;
         _historyCacheSaver = historyCacheSaver;
+        _historyDepthCheckpointReader = historyDepthCheckpointReader;
+        _historyDepthCheckpointWriter = historyDepthCheckpointWriter;
         _runtimeLog = runtimeLog;
         _nowProvider = nowProvider ?? (() => DateTimeOffset.Now);
     }
@@ -102,7 +111,30 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
                          .Select(group => group.Last()))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await RefreshSubscriptionAsync(subscription, quotes, history, activeIntradaySymbols, cancellationToken).ConfigureAwait(false);
+                if (subscription.LifetimeToken.IsCancellationRequested)
+                {
+                    continue;
+                }
+
+                using CancellationTokenSource? linkedCancellation = subscription.LifetimeToken.CanBeCanceled
+                    ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, subscription.LifetimeToken)
+                    : null;
+                CancellationToken subscriptionToken = linkedCancellation?.Token ?? cancellationToken;
+                try
+                {
+                    await RefreshSubscriptionAsync(
+                        subscription,
+                        quotes,
+                        history,
+                        activeIntradaySymbols,
+                        subscriptionToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (
+                    subscription.LifetimeToken.IsCancellationRequested
+                    && !cancellationToken.IsCancellationRequested)
+                {
+                    // One chart window was closed. Other active chart subscriptions continue independently.
+                }
             }
 
             await RefreshBackgroundIntradayCacheAsync(backgroundSecurities, activeIntradaySymbols, cancellationToken).ConfigureAwait(false);
@@ -122,7 +154,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
 
     public void PublishCachedOrBuild(ChartSubscription subscription)
     {
-        if (_disposed)
+        if (_disposed || subscription.LifetimeToken.IsCancellationRequested)
         {
             return;
         }
@@ -174,7 +206,12 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             MarketDataSourceRoute route = MarketDataSourceRouter.Resolve(
                 subscription.Security.InstrumentType,
                 MarketDataPurpose.DailyHistory);
-            if (!HasDailyCache(subscription.Security.StrategyCode)
+            bool deepHistoryHandled = await TryEnsureDeepHistoryAsync(
+                subscription,
+                route,
+                cancellationToken).ConfigureAwait(false);
+            if (!deepHistoryHandled
+                && !HasDailyCache(subscription.Security.StrategyCode)
                 && !HasDailyHistory(subscription.Security, history))
             {
                 UseRouteCacheOrDailyUnavailable(subscription.Security, route, _nowProvider());
@@ -208,8 +245,11 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         SecurityChartSnapshot snapshot = BuildSnapshot(subscription);
+        cancellationToken.ThrowIfCancellationRequested();
         _cache.SaveSnapshot(snapshot);
+        cancellationToken.ThrowIfCancellationRequested();
         SnapshotUpdated?.Invoke(this, snapshot);
     }
 
@@ -835,6 +875,237 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         }
     }
 
+    private async Task<bool> TryEnsureDeepHistoryAsync(
+        ChartSubscription subscription,
+        MarketDataSourceRoute route,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<KLinePoint> existing = ReadCurrentDailyKLines(subscription.Security);
+        ChartHistoryDepthInfo currentDepth = ChartHistoryDepthEvaluator.Evaluate(existing);
+        if (!ChartHistoryDepthEvaluator.NeedsBackfill(subscription.Period, currentDepth))
+        {
+            return false;
+        }
+
+        if (!route.AllowNetworkRequest
+            || route.Provider is not (MarketDataProvider.Tencent or MarketDataProvider.EastMoney))
+        {
+            return false;
+        }
+
+        string attemptKey = route.Source + ":" + NormalizeStrategyCode(subscription.Security.StrategyCode);
+        if (_deepHistoryAttempts.TryGetValue(attemptKey, out DeepHistoryAttemptState attemptState))
+        {
+            if (attemptState != DeepHistoryAttemptState.Cancelled)
+            {
+                return true;
+            }
+
+            _deepHistoryAttempts.Remove(attemptKey);
+        }
+
+        string checkpointKey = BuildHistoryDepthCheckpointKey(subscription.Security);
+        ChartHistoryDepthCheckpoint? checkpoint = TryReadHistoryDepthCheckpoint(checkpointKey);
+        DateTimeOffset now = _nowProvider();
+        if (string.Equals(checkpoint?.Source, route.Source, StringComparison.OrdinalIgnoreCase)
+            && ChartHistoryDepthEvaluator.ShouldSkipExhaustedSource(currentDepth, checkpoint, now))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _deepHistoryAttempts[attemptKey] = DeepHistoryAttemptState.SourceExhausted;
+            _cache.SaveDailyKLines(
+                subscription.Security.StrategyCode,
+                existing,
+                new ChartDataStatus(existing.Count > 0, "已显示数据源全部可用历史", true),
+                now);
+            return true;
+        }
+
+        MarketRequestKind requestKind = route.Provider == MarketDataProvider.Tencent
+            ? MarketRequestKind.EtfDailyKLine
+            : MarketRequestKind.IndexDailyHistory;
+        string requestKey = route.Source + ":CHART-DEEP:" + subscription.Security.StrategyCode;
+        if (!CanRequest(
+                requestKey,
+                requestKind,
+                subscription.Security.StrategyCode,
+                KLineRequestInterval,
+                now,
+                out ChartDataStatus blockedStatus))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _cache.SaveDailyKLines(
+                subscription.Security.StrategyCode,
+                existing,
+                existing.Count > 0
+                    ? new ChartDataStatus(
+                        true,
+                        blockedStatus.IsCircuitOpen ? "深历史接口熔断中，保留最近真实日K缓存" : "深历史补齐等待限频窗口，保留最近真实日K缓存",
+                        true,
+                        blockedStatus.IsRateLimited,
+                        blockedStatus.IsCircuitOpen)
+                    : blockedStatus,
+                now);
+            return true;
+        }
+
+        _deepHistoryAttempts[attemptKey] = DeepHistoryAttemptState.InProgress;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EastMoneyHistoryFetchResult result = route.Provider == MarketDataProvider.Tencent
+                ? await _client.FetchTencentDailyHistoryDepthAsync(
+                    ResolveTencentCode(subscription.Security),
+                    DeepHistoryTargetPointCount,
+                    cancellationToken).ConfigureAwait(false)
+                : await _client.FetchEastMoneyHistoryAsync(
+                    subscription.Security.EastMoneySecId,
+                    isEtf: false,
+                    preferDaily: true,
+                    cancellationToken).ConfigureAwait(false);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            MarketHistoryQualityInfo quality = MarketHistoryQuality.Analyze(result.RawPayload);
+            if (quality.Frequency != MarketHistoryFrequency.DailyLike)
+            {
+                throw new InvalidOperationException("深历史接口未返回有效 DailyLike 日K");
+            }
+
+            IReadOnlyList<KLinePoint> candidate = KLineAggregator.FromHistoryPoints(
+                EastMoneyHistoryParser.ParsePoints(result.RawPayload));
+            cancellationToken.ThrowIfCancellationRequested();
+            ChartHistoryReplacementDecision replacement = ChartHistoryDepthEvaluator.DecideReplacement(existing, candidate);
+            if (!replacement.ShouldReplace)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _cache.SaveDailyKLines(
+                    subscription.Security.StrategyCode,
+                    existing,
+                    new ChartDataStatus(existing.Count > 0, "深历史结果未采用，保留原真实日K缓存", true),
+                    _nowProvider());
+                _deepHistoryAttempts[attemptKey] = DeepHistoryAttemptState.TemporaryFailure;
+                GetBreaker(requestKey).RecordSuccess();
+                _scheduler?.RecordSuccess(requestKind, subscription.Security.StrategyCode, _nowProvider());
+                _runtimeLog?.Invoke(
+                    "WARN",
+                    "SecurityChart",
+                    subscription.Security.StrategyCode + " 深历史结果未采用：" + replacement.Reason);
+                return true;
+            }
+
+            ChartHistoryDepthInfo updatedDepth = ChartHistoryDepthEvaluator.Evaluate(candidate);
+            string statusMessage = result.IsSourceExhausted
+                                   && ChartHistoryDepthEvaluator.NeedsBackfill(subscription.Period, updatedDepth)
+                ? "已显示数据源全部可用历史"
+                : "真实日K深历史已更新";
+            cancellationToken.ThrowIfCancellationRequested();
+            _cache.SaveDailyKLines(
+                subscription.Security.StrategyCode,
+                candidate,
+                new ChartDataStatus(true, statusMessage, true),
+                _nowProvider());
+            cancellationToken.ThrowIfCancellationRequested();
+            TryPersistDailyHistoryPayload(subscription.Security, result, route.Source);
+            cancellationToken.ThrowIfCancellationRequested();
+            TryWriteHistoryDepthCheckpoint(
+                checkpointKey,
+                new ChartHistoryDepthCheckpoint(
+                    route.Source,
+                    updatedDepth.DailyCount,
+                    updatedDepth.EarliestDate,
+                    updatedDepth.LatestDate,
+                    result.IsSourceExhausted,
+                    _nowProvider()));
+            _deepHistoryAttempts[attemptKey] = result.IsSourceExhausted
+                ? DeepHistoryAttemptState.SourceExhausted
+                : DeepHistoryAttemptState.Completed;
+            cancellationToken.ThrowIfCancellationRequested();
+            GetBreaker(requestKey).RecordSuccess();
+            _scheduler?.RecordSuccess(requestKind, subscription.Security.StrategyCode, _nowProvider());
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _deepHistoryAttempts[attemptKey] = DeepHistoryAttemptState.Cancelled;
+            _lastKLineRequestAt.Remove(requestKey);
+            _scheduler?.ReleaseCancelledRequest(requestKind, subscription.Security.StrategyCode, _nowProvider());
+            throw;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _deepHistoryAttempts[attemptKey] = DeepHistoryAttemptState.TemporaryFailure;
+            string message = FormatException(ex);
+            now = _nowProvider();
+            DateTimeOffset? cooldown = GetBreaker(requestKey).RecordFailure(message, now);
+            cooldown = Max(cooldown, _scheduler?.RecordFailure(requestKind, subscription.Security.StrategyCode, message, now));
+            _cache.SaveDailyKLines(
+                subscription.Security.StrategyCode,
+                existing,
+                existing.Count > 0
+                    ? new ChartDataStatus(true, "深历史补齐失败，保留最近真实日K缓存", true, IsCircuitOpen: cooldown.HasValue)
+                    : new ChartDataStatus(false, "深历史补齐失败，且无可用DailyLike日K缓存", IsCircuitOpen: cooldown.HasValue),
+                now);
+            _runtimeLog?.Invoke(
+                "WARN",
+                "SecurityChart",
+                subscription.Security.StrategyCode + " 深历史补齐失败：" + message);
+            return true;
+        }
+    }
+
+    private IReadOnlyList<KLinePoint> ReadCurrentDailyKLines(ChartSecurityInfo security)
+        => ChartDataService.BuildSnapshot(
+                security,
+                SecurityChartPeriod.Daily,
+                SecurityChartSubPanel.Volume,
+                Array.Empty<MarketQuoteRecord>(),
+                _lastHistory,
+                null,
+                _cache.GetDailyKLines(security.StrategyCode))
+            .KLines
+            .Where(point => !point.IsDisplayOnly)
+            .ToArray();
+
+    private ChartHistoryDepthCheckpoint? TryReadHistoryDepthCheckpoint(string key)
+    {
+        if (_historyDepthCheckpointReader is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return ChartHistoryDepthEvaluator.ParseCheckpoint(_historyDepthCheckpointReader(key));
+        }
+        catch (Exception ex)
+        {
+            _runtimeLog?.Invoke("WARN", "SecurityChart", "读取日K深度检查点失败：" + FormatException(ex));
+            return null;
+        }
+    }
+
+    private void TryWriteHistoryDepthCheckpoint(string key, ChartHistoryDepthCheckpoint checkpoint)
+    {
+        if (_historyDepthCheckpointWriter is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _historyDepthCheckpointWriter(key, ChartHistoryDepthEvaluator.SerializeCheckpoint(checkpoint));
+        }
+        catch (Exception ex)
+        {
+            _runtimeLog?.Invoke("WARN", "SecurityChart", "写入日K深度检查点失败：" + FormatException(ex));
+        }
+    }
+
+    private static string BuildHistoryDepthCheckpointKey(ChartSecurityInfo security)
+        => HistoryDepthCheckpointPrefix
+           + (security.InstrumentType == ChartInstrumentType.Index ? "INDEX:" : "ETF:")
+           + NormalizeStrategyCode(security.StrategyCode);
+
     private async Task TryRefreshDailyKLineAsync(ChartSubscription subscription, CancellationToken cancellationToken)
     {
         string key = MarketSources.EastMoneyHistory + ":CHART:" + subscription.Security.StrategyCode;
@@ -991,7 +1262,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         {
             _historyCacheSaver(
                 security.StrategyCode,
-                "ETF",
+                security.InstrumentType == ChartInstrumentType.Index ? "INDEX" : "ETF",
                 result.High,
                 result.RawPayload,
                 source);
@@ -1199,6 +1470,15 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         }
 
         return first.Value >= second.Value ? first : second;
+    }
+
+    private enum DeepHistoryAttemptState
+    {
+        InProgress,
+        Completed,
+        SourceExhausted,
+        TemporaryFailure,
+        Cancelled
     }
 
     public void Dispose()

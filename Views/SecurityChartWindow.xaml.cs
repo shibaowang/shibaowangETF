@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -21,9 +22,36 @@ public partial class SecurityChartWindow : Window
     private static readonly SolidColorBrush PreviousCloseLineBrush = BrushFrom("#EAF6FF");
     private static readonly SolidColorBrush SelectedButtonBrush = BrushFrom("#1A5D80");
     private static readonly SolidColorBrush NormalButtonBrush = BrushFrom("#082235");
+    private static readonly SolidColorBrush Ma5Brush = BrushFrom("#E5E7EB");
+    private static readonly SolidColorBrush Ma10Brush = BrushFrom("#FACC15");
+    private static readonly SolidColorBrush Ma20Brush = BrushFrom("#F472B6");
+    private static readonly SolidColorBrush Ma60Brush = BrushFrom("#22D3EE");
 
     private readonly ChartSecurityInfo _security;
+    private readonly ChartViewportStore _viewportStore = new();
+    private readonly Dictionary<int, bool> _movingAverageVisibility = new()
+    {
+        [5] = true,
+        [10] = true,
+        [20] = true,
+        [60] = true
+    };
     private SecurityChartSnapshot? _snapshot;
+    private IReadOnlyList<TradeLogRecord> _tradeLogs = Array.Empty<TradeLogRecord>();
+    private IReadOnlyList<StrategyConfigRecord> _strategies = Array.Empty<StrategyConfigRecord>();
+    private IReadOnlyDictionary<int, MovingAverageSeries> _movingAverageSeries =
+        new Dictionary<int, MovingAverageSeries>();
+    private IReadOnlyList<ChartTradeMarker> _tradeMarkers = Array.Empty<ChartTradeMarker>();
+    private ChartCrosshairState _crosshair = ChartCrosshairState.Hidden;
+    private Line? _mainCrosshairVertical;
+    private Line? _subCrosshairVertical;
+    private Line? _mainCrosshairHorizontal;
+    private TextBlock? _crosshairPriceText;
+    private bool _isDragging;
+    private Point _dragOrigin;
+    private ChartViewportState? _dragOriginViewport;
+    private double _visiblePriceMin;
+    private double _visiblePriceMax;
     private bool _isClosed;
 
     public SecurityChartWindow(ChartSecurityInfo security)
@@ -47,6 +75,14 @@ public partial class SecurityChartWindow : Window
 
     public event EventHandler<SecurityChartPeriodChangedEventArgs>? PeriodChanged;
 
+    public void UpdateTradeContext(
+        IReadOnlyList<TradeLogRecord> tradeLogs,
+        IReadOnlyList<StrategyConfigRecord> strategies)
+    {
+        _tradeLogs = tradeLogs?.ToArray() ?? Array.Empty<TradeLogRecord>();
+        _strategies = strategies?.ToArray() ?? Array.Empty<StrategyConfigRecord>();
+    }
+
     public void UpdateSnapshot(SecurityChartSnapshot snapshot)
     {
         if (_isClosed)
@@ -62,7 +98,26 @@ public partial class SecurityChartWindow : Window
         }
 
         _snapshot = snapshot;
+        if (snapshot.Period != SecurityChartPeriod.Intraday)
+        {
+            _viewportStore.Reconcile(snapshot.Period, snapshot.KLines.Count);
+            _movingAverageSeries = MovingAverageSeriesBuilder.BuildDefault(snapshot.KLines);
+            _tradeMarkers = ChartTradeMarkerBuilder.Build(
+                snapshot.Security,
+                snapshot.Period,
+                snapshot.KLines,
+                _tradeLogs,
+                _strategies);
+        }
+        else
+        {
+            _movingAverageSeries = new Dictionary<int, MovingAverageSeries>();
+            _tradeMarkers = Array.Empty<ChartTradeMarker>();
+        }
+
+        _crosshair = ChartCrosshairState.Hidden;
         UpdateHeader(snapshot);
+        UpdateButtonState();
         DrawCharts();
     }
 
@@ -185,7 +240,18 @@ public partial class SecurityChartWindow : Window
                       && !main.Contains("最新价来自", StringComparison.OrdinalIgnoreCase)
             ? "；最新点由真实 quote 驱动，仅用于显示"
             : string.Empty;
-        return main + "；" + volume + previousClose + tail;
+        string depth = snapshot.Period != SecurityChartPeriod.Intraday && snapshot.HistoryDepth is { } historyDepth
+            ? BuildHistoryDepthFooter(historyDepth)
+            : string.Empty;
+        return main + "；" + volume + previousClose + tail + depth;
+    }
+
+    private static string BuildHistoryDepthFooter(ChartHistoryDepthInfo depth)
+    {
+        string range = depth.EarliestDate.HasValue && depth.LatestDate.HasValue
+            ? $"｜{depth.EarliestDate:yyyy-MM} 至 {depth.LatestDate:yyyy-MM}"
+            : string.Empty;
+        return $"；日K {depth.DailyCount}根｜周K {depth.WeeklyCount}根｜月K {depth.MonthlyCount}根{range}";
     }
 
     private void DrawCharts()
@@ -208,6 +274,24 @@ public partial class SecurityChartWindow : Window
         }
 
         DrawSubPanel(snapshot);
+        if (Period != SecurityChartPeriod.Intraday)
+        {
+            EnsureCrosshairElements();
+            UpdateMovingAverageLegend(snapshot, ResolveLegendGlobalIndex(snapshot));
+            if (_crosshair.IsVisible)
+            {
+                UpdateCrosshairOverlay(snapshot);
+            }
+            else
+            {
+                CrosshairInfoBorder.Visibility = Visibility.Collapsed;
+            }
+        }
+        else
+        {
+            MovingAverageLegendText.Text = string.Empty;
+            CrosshairInfoBorder.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void DrawIntraday(SecurityChartSnapshot snapshot)
@@ -294,24 +378,28 @@ public partial class SecurityChartWindow : Window
 
     private void DrawKLines(SecurityChartSnapshot snapshot)
     {
-        IReadOnlyList<KLinePoint> points = snapshot.KLines;
-        DrawGrid(MainChartCanvas);
-        if (points.Count == 0)
+        if (!TryResolveVisibleKLines(snapshot, out ChartVisibleRange range, out KLinePoint[] points))
         {
+            DrawGrid(MainChartCanvas);
             AddCenteredText(MainChartCanvas, snapshot.MainStatus.Message);
             return;
         }
 
+        DrawGrid(MainChartCanvas);
         double width = MainChartCanvas.ActualWidth;
         double height = MainChartCanvas.ActualHeight;
         Rect plot = PlotRect(width, height);
         double min = points.Min(point => point.Low);
         double max = points.Max(point => point.High);
+        IncludeVisibleMovingAveragesInRange(range, ref min, ref max);
         ExpandRange(ref min, ref max);
-        double step = plot.Width / Math.Max(1, points.Count);
+        ReserveTradeMarkerSpace(range, ref min, ref max);
+        _visiblePriceMin = min;
+        _visiblePriceMax = max;
+        double step = plot.Width / Math.Max(1, points.Length);
         double bodyWidth = Math.Clamp(step * 0.56, 2, 10);
 
-        for (int i = 0; i < points.Count; i++)
+        for (int i = 0; i < points.Length; i++)
         {
             KLinePoint point = points[i];
             double x = plot.Left + step * i + step / 2;
@@ -345,9 +433,208 @@ public partial class SecurityChartWindow : Window
             MainChartCanvas.Children.Add(body);
         }
 
+        DrawMovingAverages(plot, range, min, max);
+        DrawTradeMarkers(plot, range, points, min, max);
         KLinePoint latest = points[^1];
         AddText(MainChartCanvas, latest.Date.ToString("MM-dd", CultureInfo.InvariantCulture), plot.Right - 42, plot.Bottom + 5, 12, MutedBrush);
         AddText(MainChartCanvas, FormatNumber(latest.Close), plot.Right - 62, YByValue(plot, latest.Close, min, max) - 18, 13, TextBrush);
+    }
+
+    private bool TryResolveVisibleKLines(
+        SecurityChartSnapshot snapshot,
+        out ChartVisibleRange range,
+        out KLinePoint[] points)
+    {
+        if (snapshot.Period == SecurityChartPeriod.Intraday || snapshot.KLines.Count == 0)
+        {
+            range = new ChartVisibleRange(0, 0);
+            points = Array.Empty<KLinePoint>();
+            return false;
+        }
+
+        ChartViewportState state = _viewportStore.Reconcile(snapshot.Period, snapshot.KLines.Count);
+        range = ChartViewportCalculator.ResolveVisibleRange(state);
+        points = snapshot.KLines
+            .Skip(range.StartIndex)
+            .Take(range.Count)
+            .ToArray();
+        return points.Length > 0;
+    }
+
+    private void IncludeVisibleMovingAveragesInRange(ChartVisibleRange range, ref double min, ref double max)
+    {
+        foreach ((int period, MovingAverageSeries series) in _movingAverageSeries)
+        {
+            if (!_movingAverageVisibility.GetValueOrDefault(period))
+            {
+                continue;
+            }
+
+            foreach (double? value in series.Values.Skip(range.StartIndex).Take(range.Count))
+            {
+                if (value is not { } current || !IsFinite(current))
+                {
+                    continue;
+                }
+
+                min = Math.Min(min, current);
+                max = Math.Max(max, current);
+            }
+        }
+    }
+
+    private void ReserveTradeMarkerSpace(ChartVisibleRange range, ref double min, ref double max)
+    {
+        bool hasBuy = _tradeMarkers.Any(marker => marker.MarkerType == ChartTradeMarkerType.B
+                                                  && marker.KLineIndex >= range.StartIndex
+                                                  && marker.KLineIndex < range.EndExclusive);
+        bool hasSell = _tradeMarkers.Any(marker => marker.MarkerType == ChartTradeMarkerType.S
+                                                   && marker.KLineIndex >= range.StartIndex
+                                                   && marker.KLineIndex < range.EndExclusive);
+        double markerPadding = Math.Max(0.01, (max - min) * 0.045);
+        if (hasBuy)
+        {
+            min -= markerPadding;
+        }
+
+        if (hasSell)
+        {
+            max += markerPadding;
+        }
+    }
+
+    private void DrawMovingAverages(Rect plot, ChartVisibleRange range, double min, double max)
+    {
+        foreach (int period in MovingAverageSeriesBuilder.DefaultPeriods)
+        {
+            if (!_movingAverageVisibility.GetValueOrDefault(period)
+                || !_movingAverageSeries.TryGetValue(period, out MovingAverageSeries? series))
+            {
+                continue;
+            }
+
+            Polyline? line = null;
+            for (int visibleIndex = 0; visibleIndex < range.Count; visibleIndex++)
+            {
+                int globalIndex = range.StartIndex + visibleIndex;
+                double? value = globalIndex < series.Values.Count ? series.Values[globalIndex] : null;
+                if (value is not { } current || !IsFinite(current))
+                {
+                    line = null;
+                    continue;
+                }
+
+                if (line is null)
+                {
+                    line = new Polyline
+                    {
+                        Stroke = MovingAverageBrush(period),
+                        StrokeThickness = 1.25,
+                        Opacity = 0.94
+                    };
+                    MainChartCanvas.Children.Add(line);
+                }
+
+                line.Points.Add(new Point(
+                    XByBarCenter(plot, visibleIndex, range.Count),
+                    YByValue(plot, current, min, max)));
+            }
+        }
+    }
+
+    private void DrawTradeMarkers(
+        Rect plot,
+        ChartVisibleRange range,
+        IReadOnlyList<KLinePoint> visiblePoints,
+        double min,
+        double max)
+    {
+        foreach (ChartTradeMarker marker in _tradeMarkers.Where(marker =>
+                     marker.KLineIndex >= range.StartIndex && marker.KLineIndex < range.EndExclusive))
+        {
+            int visibleIndex = marker.KLineIndex - range.StartIndex;
+            KLinePoint point = visiblePoints[visibleIndex];
+            double x = XByBarCenter(plot, visibleIndex, visiblePoints.Count);
+            bool isBuy = marker.MarkerType == ChartTradeMarkerType.B;
+            double referenceY = YByValue(plot, isBuy ? point.Low : point.High, min, max);
+            double y = isBuy
+                ? Math.Min(plot.Bottom - 17, referenceY + 3)
+                : Math.Max(plot.Top + 1, referenceY - 19);
+            var label = new TextBlock
+            {
+                Text = marker.MarkerType.ToString(),
+                Foreground = isBuy ? RedBrush : GreenBrush,
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(label, Math.Clamp(x - 5, plot.Left, plot.Right - 11));
+            Canvas.SetTop(label, y);
+            MainChartCanvas.Children.Add(label);
+        }
+    }
+
+    private MacdPoint[] ResolveVisibleMacd(SecurityChartSnapshot snapshot)
+    {
+        if (!TryResolveVisibleKLines(snapshot, out _, out KLinePoint[] visible))
+        {
+            return Array.Empty<MacdPoint>();
+        }
+
+        var dates = visible.Select(point => point.Date).ToHashSet();
+        return snapshot.Macd
+            .Where(point => dates.Contains(point.Date))
+            .OrderBy(point => point.Date)
+            .ToArray();
+    }
+
+    private int ResolveLegendGlobalIndex(SecurityChartSnapshot snapshot)
+    {
+        if (!TryResolveVisibleKLines(snapshot, out ChartVisibleRange range, out _))
+        {
+            return -1;
+        }
+
+        int visibleIndex = _crosshair.IsVisible
+            ? Math.Clamp(_crosshair.VisibleKLineIndex, 0, range.Count - 1)
+            : range.Count - 1;
+        return range.StartIndex + visibleIndex;
+    }
+
+    private void UpdateMovingAverageLegend(SecurityChartSnapshot snapshot, int globalIndex)
+    {
+        MovingAverageLegendText.Inlines.Clear();
+        if (snapshot.Period == SecurityChartPeriod.Intraday || globalIndex < 0)
+        {
+            return;
+        }
+
+        foreach (int period in MovingAverageSeriesBuilder.DefaultPeriods)
+        {
+            double? value = _movingAverageSeries.TryGetValue(period, out MovingAverageSeries? series)
+                            && globalIndex < series.Values.Count
+                ? series.Values[globalIndex]
+                : null;
+            MovingAverageLegendText.Inlines.Add(new Run($"MA{period} {FormatPrice(value)}  ")
+            {
+                Foreground = MovingAverageBrush(period)
+            });
+        }
+    }
+
+    private static Brush MovingAverageBrush(int period)
+        => period switch
+        {
+            5 => Ma5Brush,
+            10 => Ma10Brush,
+            20 => Ma20Brush,
+            _ => Ma60Brush
+        };
+
+    private static double XByBarCenter(Rect plot, int visibleIndex, int visibleCount)
+    {
+        double step = plot.Width / Math.Max(1, visibleCount);
+        return plot.Left + step * visibleIndex + step / 2;
     }
 
     private void DrawSubPanel(SecurityChartSnapshot snapshot)
@@ -371,8 +658,8 @@ public partial class SecurityChartWindow : Window
             return;
         }
 
-        KLinePoint[] points = snapshot.KLines.ToArray();
-        if (points.Length == 0 || points.All(point => !point.Volume.HasValue))
+        if (!TryResolveVisibleKLines(snapshot, out _, out KLinePoint[] points)
+            || points.All(point => !point.Volume.HasValue))
         {
             AddCenteredText(SubChartCanvas, snapshot.VolumeStatus.Message);
             return;
@@ -474,7 +761,7 @@ public partial class SecurityChartWindow : Window
     {
         MacdPoint[] points = Period == SecurityChartPeriod.Intraday
             ? VisibleIntradayMacdPoints(snapshot)
-            : snapshot.Macd.ToArray();
+            : ResolveVisibleMacd(snapshot);
         if (points.Length == 0)
         {
             AddCenteredText(SubChartCanvas, snapshot.MacdStatus.Message);
@@ -767,8 +1054,305 @@ public partial class SecurityChartWindow : Window
         canvas.Children.Add(marker);
     }
 
+    private void EnsureCrosshairElements()
+    {
+        _mainCrosshairVertical ??= CreateCrosshairLine();
+        _subCrosshairVertical ??= CreateCrosshairLine();
+        _mainCrosshairHorizontal ??= CreateCrosshairLine();
+        _crosshairPriceText ??= new TextBlock
+        {
+            Foreground = TextBrush,
+            Background = BrushFrom("#D9071724"),
+            FontSize = 11,
+            Padding = new Thickness(3, 1, 3, 1),
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        };
+
+        AddIfMissing(MainChartCanvas, _mainCrosshairVertical);
+        AddIfMissing(MainChartCanvas, _mainCrosshairHorizontal);
+        AddIfMissing(MainChartCanvas, _crosshairPriceText);
+        AddIfMissing(SubChartCanvas, _subCrosshairVertical);
+        SetCrosshairVisibility(_crosshair.IsVisible ? Visibility.Visible : Visibility.Collapsed);
+    }
+
+    private void UpdateCrosshairOverlay(SecurityChartSnapshot snapshot)
+    {
+        if (!_crosshair.IsVisible
+            || !TryResolveVisibleKLines(snapshot, out ChartVisibleRange range, out KLinePoint[] visiblePoints))
+        {
+            HideCrosshair();
+            return;
+        }
+
+        EnsureCrosshairElements();
+        int visibleIndex = Math.Clamp(_crosshair.VisibleKLineIndex, 0, visiblePoints.Length - 1);
+        int globalIndex = range.StartIndex + visibleIndex;
+        Rect mainPlot = PlotRect(MainChartCanvas.ActualWidth, MainChartCanvas.ActualHeight);
+        Rect subPlot = PlotRect(SubChartCanvas.ActualWidth, SubChartCanvas.ActualHeight);
+        double mainX = XByBarCenter(mainPlot, visibleIndex, visiblePoints.Length);
+        double subX = XByBarCenter(subPlot, visibleIndex, visiblePoints.Length);
+        double mouseY = Math.Clamp(_crosshair.MouseY, mainPlot.Top, mainPlot.Bottom);
+
+        SetLine(_mainCrosshairVertical!, mainX, mainPlot.Top, mainX, mainPlot.Bottom);
+        SetLine(_subCrosshairVertical!, subX, subPlot.Top, subX, subPlot.Bottom);
+        SetLine(_mainCrosshairHorizontal!, mainPlot.Left, mouseY, mainPlot.Right, mouseY);
+        SetCrosshairVisibility(Visibility.Visible);
+
+        double price = _visiblePriceMax - (mouseY - mainPlot.Top) / Math.Max(1, mainPlot.Height)
+            * (_visiblePriceMax - _visiblePriceMin);
+        _crosshairPriceText!.Text = FormatPrice(price);
+        Canvas.SetLeft(_crosshairPriceText, Math.Max(mainPlot.Left, mainPlot.Right - 58));
+        Canvas.SetTop(_crosshairPriceText, Math.Clamp(mouseY - 10, mainPlot.Top, mainPlot.Bottom - 20));
+
+        KLinePoint point = visiblePoints[visibleIndex];
+        double? previousClose = globalIndex > 0 ? snapshot.KLines[globalIndex - 1].Close : null;
+        double? changePercent = previousClose is > 0
+            ? (point.Close / previousClose.Value - 1) * 100
+            : null;
+        CrosshairInfoText.Text =
+            $"{point.Date:yyyy-MM-dd}  开 {FormatPrice(point.Open)}  高 {FormatPrice(point.High)}  " +
+            $"低 {FormatPrice(point.Low)}  收 {FormatPrice(point.Close)}  涨跌 {FormatSignedPercent(changePercent)}  " +
+            $"成交量 {FormatQuantity(point.Volume)}\n" +
+            string.Join("  ", MovingAverageSeriesBuilder.DefaultPeriods.Select(period =>
+                $"MA{period} {FormatPrice(MovingAverageValue(period, globalIndex))}"));
+        CrosshairInfoBorder.Visibility = Visibility.Visible;
+        UpdateMovingAverageLegend(snapshot, globalIndex);
+    }
+
+    private double? MovingAverageValue(int period, int globalIndex)
+        => _movingAverageSeries.TryGetValue(period, out MovingAverageSeries? series)
+           && globalIndex >= 0
+           && globalIndex < series.Values.Count
+            ? series.Values[globalIndex]
+            : null;
+
+    private void HideCrosshair()
+    {
+        _crosshair = ChartCrosshairState.Hidden;
+        SetCrosshairVisibility(Visibility.Collapsed);
+        CrosshairInfoBorder.Visibility = Visibility.Collapsed;
+        if (_snapshot is { Period: not SecurityChartPeriod.Intraday } snapshot)
+        {
+            UpdateMovingAverageLegend(snapshot, ResolveLegendGlobalIndex(snapshot));
+        }
+    }
+
+    private void SetCrosshairVisibility(Visibility visibility)
+    {
+        if (_mainCrosshairVertical is not null)
+        {
+            _mainCrosshairVertical.Visibility = visibility;
+        }
+
+        if (_subCrosshairVertical is not null)
+        {
+            _subCrosshairVertical.Visibility = visibility;
+        }
+
+        if (_mainCrosshairHorizontal is not null)
+        {
+            _mainCrosshairHorizontal.Visibility = visibility;
+        }
+
+        if (_crosshairPriceText is not null)
+        {
+            _crosshairPriceText.Visibility = visibility;
+        }
+    }
+
+    private static Line CreateCrosshairLine()
+        => new()
+        {
+            Stroke = BrushFrom("#A8C7D9"),
+            StrokeThickness = 0.9,
+            StrokeDashArray = new DoubleCollection { 4, 4 },
+            Opacity = 0.82,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        };
+
+    private static void AddIfMissing(Canvas canvas, UIElement element)
+    {
+        if (!canvas.Children.Contains(element))
+        {
+            canvas.Children.Add(element);
+        }
+    }
+
+    private static void SetLine(Line line, double x1, double y1, double x2, double y2)
+    {
+        line.X1 = x1;
+        line.Y1 = y1;
+        line.X2 = x2;
+        line.Y2 = y2;
+    }
+
+    private void MainChartCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!TryGetCurrentViewport(out ChartViewportState state))
+        {
+            return;
+        }
+
+        Rect plot = PlotRect(MainChartCanvas.ActualWidth, MainChartCanvas.ActualHeight);
+        Point position = e.GetPosition(MainChartCanvas);
+        double anchorRatio = plot.Width <= 0 ? 1 : (position.X - plot.Left) / plot.Width;
+        _viewportStore.Set(Period, ChartViewportCalculator.ZoomAt(state, anchorRatio, e.Delta));
+        HideCrosshair();
+        DrawCharts();
+        e.Handled = true;
+    }
+
+    private void MainChartCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!TryGetCurrentViewport(out ChartViewportState state))
+        {
+            return;
+        }
+
+        if (e.ClickCount >= 2)
+        {
+            ResetCurrentViewport();
+            e.Handled = true;
+            return;
+        }
+
+        _dragOrigin = e.GetPosition(MainChartCanvas);
+        _dragOriginViewport = state;
+        _isDragging = MainChartCanvas.CaptureMouse();
+        if (_isDragging)
+        {
+            HideCrosshair();
+            e.Handled = true;
+        }
+    }
+
+    private void MainChartCanvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!TryGetCurrentViewport(out ChartViewportState state)
+            || _snapshot is not { Period: not SecurityChartPeriod.Intraday } snapshot)
+        {
+            return;
+        }
+
+        Point position = e.GetPosition(MainChartCanvas);
+        if (_isDragging && _dragOriginViewport is not null)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                EndDrag();
+                return;
+            }
+
+            Rect plot = PlotRect(MainChartCanvas.ActualWidth, MainChartCanvas.ActualHeight);
+            double pixelsPerBar = plot.Width / Math.Max(1, _dragOriginViewport.VisibleCount);
+            int barsTowardHistory = pixelsPerBar <= 0
+                ? 0
+                : (int)Math.Round((position.X - _dragOrigin.X) / pixelsPerBar, MidpointRounding.AwayFromZero);
+            ChartViewportState next = ChartViewportCalculator.Pan(_dragOriginViewport, barsTowardHistory);
+            if (next.VisibleStartIndex != state.VisibleStartIndex)
+            {
+                _viewportStore.Set(Period, next);
+                DrawCharts();
+            }
+
+            return;
+        }
+
+        Rect mainPlot = PlotRect(MainChartCanvas.ActualWidth, MainChartCanvas.ActualHeight);
+        if (!mainPlot.Contains(position))
+        {
+            HideCrosshair();
+            return;
+        }
+
+        double ratio = Math.Clamp((position.X - mainPlot.Left) / Math.Max(1, mainPlot.Width), 0, 0.999999);
+        int visibleIndex = Math.Clamp((int)Math.Floor(ratio * state.VisibleCount), 0, state.VisibleCount - 1);
+        _crosshair = new ChartCrosshairState(true, visibleIndex, position.X, position.Y);
+        UpdateCrosshairOverlay(snapshot);
+    }
+
+    private void MainChartCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_isDragging)
+        {
+            EndDrag();
+            e.Handled = true;
+        }
+    }
+
+    private void MainChartCanvas_MouseLeave(object sender, MouseEventArgs e)
+    {
+        EndDrag();
+        HideCrosshair();
+    }
+
+    private void MainChartCanvas_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        _isDragging = false;
+        _dragOriginViewport = null;
+    }
+
+    private void EndDrag()
+    {
+        bool captured = Mouse.Captured == MainChartCanvas;
+        _isDragging = false;
+        _dragOriginViewport = null;
+        if (captured)
+        {
+            MainChartCanvas.ReleaseMouseCapture();
+        }
+    }
+
+    private bool TryGetCurrentViewport(out ChartViewportState state)
+    {
+        if (Period == SecurityChartPeriod.Intraday
+            || _snapshot is null
+            || _snapshot.Period != Period
+            || _snapshot.KLines.Count == 0)
+        {
+            state = new ChartViewportState(0, 0, 0, true);
+            return false;
+        }
+
+        state = _viewportStore.Reconcile(Period, _snapshot.KLines.Count);
+        return state.VisibleCount > 0;
+    }
+
+    private void ResetCurrentViewport()
+    {
+        if (_snapshot is null || Period == SecurityChartPeriod.Intraday)
+        {
+            return;
+        }
+
+        _viewportStore.Reset(Period, _snapshot.KLines.Count);
+        HideCrosshair();
+        DrawCharts();
+    }
+
+    private void ResetViewButton_Click(object sender, RoutedEventArgs e)
+        => ResetCurrentViewport();
+
+    private void MovingAverageButton_Click(object sender, RoutedEventArgs e)
+    {
+        int period = sender switch
+        {
+            Button button when button == Ma5Button => 5,
+            Button button when button == Ma10Button => 10,
+            Button button when button == Ma20Button => 20,
+            _ => 60
+        };
+        _movingAverageVisibility[period] = !_movingAverageVisibility.GetValueOrDefault(period);
+        UpdateButtonState();
+        DrawCharts();
+    }
+
     private void PeriodButton_Click(object sender, RoutedEventArgs e)
     {
+        EndDrag();
+        HideCrosshair();
         Period = sender switch
         {
             Button button when button == IntradayButton => SecurityChartPeriod.Intraday,
@@ -795,6 +1379,16 @@ public partial class SecurityChartWindow : Window
         MonthlyButton.Background = Period == SecurityChartPeriod.Monthly ? SelectedButtonBrush : NormalButtonBrush;
         VolumeButton.Background = SubPanel == SecurityChartSubPanel.Volume ? SelectedButtonBrush : NormalButtonBrush;
         MacdButton.Background = SubPanel == SecurityChartSubPanel.Macd ? SelectedButtonBrush : NormalButtonBrush;
+        bool kLinePeriod = Period != SecurityChartPeriod.Intraday;
+        Ma5Button.IsEnabled = kLinePeriod;
+        Ma10Button.IsEnabled = kLinePeriod;
+        Ma20Button.IsEnabled = kLinePeriod;
+        Ma60Button.IsEnabled = kLinePeriod;
+        ResetViewButton.IsEnabled = kLinePeriod;
+        Ma5Button.Background = kLinePeriod && _movingAverageVisibility[5] ? SelectedButtonBrush : NormalButtonBrush;
+        Ma10Button.Background = kLinePeriod && _movingAverageVisibility[10] ? SelectedButtonBrush : NormalButtonBrush;
+        Ma20Button.Background = kLinePeriod && _movingAverageVisibility[20] ? SelectedButtonBrush : NormalButtonBrush;
+        Ma60Button.Background = kLinePeriod && _movingAverageVisibility[60] ? SelectedButtonBrush : NormalButtonBrush;
     }
 
     private void ChartCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -816,7 +1410,10 @@ public partial class SecurityChartWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        EndDrag();
         _isClosed = true;
+        _tradeLogs = Array.Empty<TradeLogRecord>();
+        _strategies = Array.Empty<StrategyConfigRecord>();
         base.OnClosed(e);
     }
 
@@ -825,6 +1422,19 @@ public partial class SecurityChartWindow : Window
 
     private static string FormatSignedPercent(double? value)
         => value.HasValue ? (value.Value > 0 ? "+" : string.Empty) + value.Value.ToString("0.##", CultureInfo.InvariantCulture) + "%" : "--";
+
+    private static string FormatPrice(double? value)
+        => value is { } current && IsFinite(current)
+            ? current.ToString("0.####", CultureInfo.InvariantCulture)
+            : "--";
+
+    private static string FormatQuantity(double? value)
+        => value is { } current && IsFinite(current)
+            ? current.ToString("0.####", CultureInfo.InvariantCulture)
+            : "--";
+
+    private static bool IsFinite(double value)
+        => !double.IsNaN(value) && !double.IsInfinity(value);
 
     private static Brush SignedBrush(double? value)
         => value > 0 ? RedBrush : value < 0 ? GreenBrush : TextBrush;

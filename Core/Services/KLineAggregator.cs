@@ -21,7 +21,7 @@ public static class KLineAggregator
             .ToArray();
 
     public static IReadOnlyList<KLinePoint> AggregateWeekly(IEnumerable<KLinePoint> daily)
-        => Aggregate(daily, point => WeekStart(point.Date));
+        => Aggregate(daily, point => ResolveWeekStart(point.Date));
 
     public static IReadOnlyList<KLinePoint> AggregateMonthly(IEnumerable<KLinePoint> daily)
         => Aggregate(daily, point => new DateTime(point.Date.Year, point.Date.Month, 1));
@@ -55,7 +55,7 @@ public static class KLineAggregator
             })
             .ToArray();
 
-    private static DateTime WeekStart(DateTime date)
+    public static DateTime ResolveWeekStart(DateTime date)
     {
         int offset = date.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)date.DayOfWeek - 1;
         return date.Date.AddDays(-offset);

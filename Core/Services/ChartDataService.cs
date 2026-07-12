@@ -7,15 +7,16 @@ namespace CrossETF.Terminal.UiShell.Reference.Core.Services;
 public static class ChartDataService
 {
     // LOCKED: Chart rendering uses real cache/quote data only; display-only points must never replace persisted history.
-    private const int MaxKLineDisplayPoints = 180;
     private const int MaxIntradayDisplayPoints = 260;
     private const string QuoteIntradayBarSource = "QUOTE_INTRADAY_BAR";
     private const string QuoteCloseDisplayPointSource = "QUOTE_CLOSE_DISPLAY";
 
     private sealed record DailyKLineCandidate(
         IReadOnlyList<KLinePoint> Points,
+        DateTime? FirstDate,
         DateTime? LastDate,
         DateTime? ReceivedAt,
+        string Source,
         ChartDataStatus Status);
 
     public static ChartSecurityInfo CreateSecurityInfo(string strategyCode, string? name, string? actualCode = null)
@@ -119,6 +120,7 @@ public static class ChartDataService
             quote,
             out quoteAdjusted,
             out quoteStatusSuffix);
+        ChartHistoryDepthInfo historyDepth = ChartHistoryDepthEvaluator.Evaluate(daily);
 
         IReadOnlyList<KLinePoint> periodKLines = period switch
         {
@@ -159,15 +161,16 @@ public static class ChartDataService
             subPanel,
             quote,
             Array.Empty<IntradayPoint>(),
-            periodKLines.TakeLast(MaxKLineDisplayPoints).ToArray(),
-            macd.TakeLast(MaxKLineDisplayPoints).ToArray(),
+            periodKLines,
+            macd,
             mainStatus,
             volumeStatusForK,
             macdStatus,
             periodChangePercent,
             null,
             updatedAt,
-            quoteAdjusted);
+            quoteAdjusted,
+            historyDepth);
     }
 
     private static MarketQuoteRecord? FindQuote(
@@ -539,10 +542,22 @@ public static class ChartDataService
         IReadOnlyList<MarketQuoteRecord> historyRecords)
     {
         MarketQuoteRecord[] candidateHistories = FilterHistory(security, historyRecords).ToArray();
+        string preferredSource = security.InstrumentType == ChartInstrumentType.Etf
+            ? MarketSources.TencentHistory
+            : MarketSources.EastMoneyHistory;
+        bool hasPreferredDaily = candidateHistories.Any(history =>
+            string.Equals(history.Source, preferredSource, StringComparison.OrdinalIgnoreCase)
+            && MarketHistoryQuality.IsDailyLike(history.RawPayload));
         DailyKLineCandidate? best = null;
 
         foreach (MarketQuoteRecord history in candidateHistories)
         {
+            if (hasPreferredDaily
+                && !string.Equals(history.Source, preferredSource, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(history.RawPayload)
                 || !MarketHistoryQuality.IsDailyLike(history.RawPayload))
             {
@@ -559,8 +574,10 @@ public static class ChartDataService
 
                 var candidate = new DailyKLineCandidate(
                     points,
+                    points[0].Date.Date,
                     points[^1].Date.Date,
                     ParseMarketTime(history.ReceivedAt),
+                    history.Source,
                     new ChartDataStatus(true, "使用最近真实日K缓存", true));
                 if (best is null || CompareDailyCandidates(candidate, best) > 0)
                 {
@@ -578,19 +595,35 @@ public static class ChartDataService
 
     private static bool IsMemoryCacheAtLeastAsFresh(ChartKLineCacheEntry memory, DailyKLineCandidate persisted)
     {
-        DateTime? memoryLastDate = memory.Points.Count > 0 ? memory.Points[^1].Date.Date : null;
-        int dateCompare = CompareNullableDates(memoryLastDate, persisted.LastDate);
-        if (dateCompare != 0)
-        {
-            return dateCompare > 0;
-        }
-
-        DateTime memoryUpdatedAt = memory.UpdatedAt.LocalDateTime;
-        return CompareNullableDates(memoryUpdatedAt, persisted.ReceivedAt) >= 0;
+        var memoryCandidate = new DailyKLineCandidate(
+            memory.Points,
+            memory.Points.Count > 0 ? memory.Points[0].Date.Date : null,
+            memory.Points.Count > 0 ? memory.Points[^1].Date.Date : null,
+            memory.UpdatedAt.LocalDateTime,
+            "MEMORY",
+            memory.Status);
+        return CompareDailyCandidates(memoryCandidate, persisted) >= 0;
     }
 
     private static int CompareDailyCandidates(DailyKLineCandidate left, DailyKLineCandidate right)
     {
+        if (left.LastDate.HasValue
+            && right.LastDate.HasValue
+            && Math.Abs((left.LastDate.Value.Date - right.LastDate.Value.Date).TotalDays) <= 7)
+        {
+            int firstDateCompare = CompareNullableDates(right.FirstDate, left.FirstDate);
+            if (firstDateCompare != 0)
+            {
+                return firstDateCompare;
+            }
+
+            int countCompare = left.Points.Count.CompareTo(right.Points.Count);
+            if (countCompare != 0)
+            {
+                return countCompare;
+            }
+        }
+
         int dateCompare = CompareNullableDates(left.LastDate, right.LastDate);
         if (dateCompare != 0)
         {

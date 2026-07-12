@@ -28,10 +28,14 @@ public sealed class ChartSubscriptionService
         }
     }
 
-    public ChartSubscription Subscribe(ChartSecurityInfo security, SecurityChartPeriod period, SecurityChartSubPanel subPanel)
+    public ChartSubscription Subscribe(
+        ChartSecurityInfo security,
+        SecurityChartPeriod period,
+        SecurityChartSubPanel subPanel,
+        CancellationToken lifetimeToken = default)
     {
         string key = NormalizeKey(security.StrategyCode);
-        var subscription = new ChartSubscription(key, security, period, subPanel, DateTimeOffset.Now);
+        var subscription = new ChartSubscription(key, security, period, subPanel, DateTimeOffset.Now, lifetimeToken);
         lock (_subscriptions)
         {
             _subscriptions[key] = subscription;
@@ -70,4 +74,5 @@ public sealed record ChartSubscription(
     ChartSecurityInfo Security,
     SecurityChartPeriod Period,
     SecurityChartSubPanel SubPanel,
-    DateTimeOffset SubscribedAt);
+    DateTimeOffset SubscribedAt,
+    CancellationToken LifetimeToken = default);

@@ -9,6 +9,10 @@ namespace CrossETF.Terminal.UiShell.Reference.Infrastructure.Market;
 
 public sealed class MarketDataClient : IChartMarketDataClient
 {
+    private const int TencentDailyPageSize = 320;
+    private const int TencentDailyMaximumTarget = 3000;
+    private static readonly TimeSpan TencentHistoryPageMinimumInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan TencentHistoryPageMaximumInterval = TimeSpan.FromSeconds(30);
     private readonly HttpClient _httpClient;
     private readonly HttpClient _eastMoneyHistoryHttpClient;
     private readonly Encoding _gb18030Encoding;
@@ -180,7 +184,8 @@ public sealed class MarketDataClient : IChartMarketDataClient
                     RawPayload = json,
                     High = high,
                     PointCount = points.Count,
-                    LatestDrawdown = EastMoneyHistoryParser.CalculateLatestDrawdown(points)
+                    LatestDrawdown = EastMoneyHistoryParser.CalculateLatestDrawdown(points),
+                    IsSourceExhausted = points.Count < 10000
                 };
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -262,8 +267,137 @@ public sealed class MarketDataClient : IChartMarketDataClient
     public async Task<EastMoneyHistoryFetchResult> FetchTencentDailyHistoryAsync(string tencentCode, CancellationToken cancellationToken)
     {
         string code = tencentCode.Trim().ToLowerInvariant();
+        TencentDailyPage page = await FetchTencentDailyPageAsync(
+            code,
+            endDate: null,
+            TencentDailyPageSize,
+            cancellationToken).ConfigureAwait(false);
+        return BuildTencentHistoryResult(
+            code,
+            page.Url,
+            page.Points,
+            page.Points.Count < TencentDailyPageSize,
+            requestCount: 1);
+    }
+
+    public async Task<EastMoneyHistoryFetchResult> FetchTencentDailyHistoryDepthAsync(
+        string tencentCode,
+        int targetPointCount,
+        CancellationToken cancellationToken)
+    {
+        string code = tencentCode.Trim().ToLowerInvariant();
+        int target = Math.Clamp(targetPointCount, TencentDailyPageSize, TencentDailyMaximumTarget);
+        int maxPages = (int)Math.Ceiling(target / (double)TencentDailyPageSize);
+        var merged = new SortedDictionary<DateTime, MarketHistoryPoint>();
+        DateTime? endDate = null;
+        DateTime? previousEarliest = null;
+        string firstUrl = string.Empty;
+        bool sourceExhausted = false;
+        int requestCount = 0;
+
+        while (merged.Count < target && requestCount < maxPages)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (requestCount > 0)
+            {
+                await WaitForTencentHistoryPageSlotAsync(code, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            TencentDailyPage page;
+            try
+            {
+                page = await FetchTencentDailyPageAsync(
+                    code,
+                    endDate,
+                    TencentDailyPageSize,
+                    cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (requestCount > 0)
+                {
+                    _scheduler?.RecordRawSuccess("web.ifzq.gtimg.cn", "fqkline/get", code);
+                }
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                if (requestCount > 0)
+                {
+                    _scheduler?.RecordRawFailure(
+                        "web.ifzq.gtimg.cn",
+                        "fqkline/get",
+                        code,
+                        FormatException(ex),
+                        _nowProvider());
+                }
+
+                throw;
+            }
+
+            requestCount++;
+            firstUrl = firstUrl.Length == 0 ? page.Url : firstUrl;
+            DateTime pageEarliest = page.Points.Min(point => point.Date.Date);
+            if (previousEarliest.HasValue && pageEarliest >= previousEarliest.Value)
+            {
+                throw new InvalidOperationException("Tencent qfq daily pagination did not advance to earlier dates. code=" + code);
+            }
+
+            int overlapCount = 0;
+            foreach (MarketHistoryPoint point in page.Points)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                DateTime date = point.Date.Date;
+                if (merged.TryGetValue(date, out MarketHistoryPoint? existing))
+                {
+                    overlapCount++;
+                    if (!SameOhlc(existing, point))
+                    {
+                        throw new InvalidOperationException("Tencent qfq daily pagination returned conflicting OHLC. code=" + code + "; date=" + date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                    }
+                }
+
+                merged[date] = point;
+            }
+
+            if (requestCount > 1 && overlapCount == 0)
+            {
+                throw new InvalidOperationException("Tencent qfq daily pagination did not provide an overlap date for adjustment consistency. code=" + code);
+            }
+
+            previousEarliest = pageEarliest;
+            if (page.Points.Count < TencentDailyPageSize)
+            {
+                sourceExhausted = true;
+                break;
+            }
+
+            // Keep one real trading-day overlap so independently returned qfq batches are never spliced unchecked.
+            endDate = pageEarliest;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        MarketHistoryPoint[] points = merged.Values
+            .TakeLast(target)
+            .ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+        EastMoneyHistoryFetchResult result = BuildTencentHistoryResult(
+            code,
+            firstUrl,
+            points,
+            sourceExhausted,
+            requestCount);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
+    }
+
+    private async Task<TencentDailyPage> FetchTencentDailyPageAsync(
+        string code,
+        DateTime? endDate,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        string end = endDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
         string url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=" +
-                     Uri.EscapeDataString(code + ",day,,,320,qfq");
+                     Uri.EscapeDataString(code + ",day,," + end + "," + count.ToString(CultureInfo.InvariantCulture) + ",qfq");
         using var request = new HttpRequestMessage(HttpMethod.Get, url)
         {
             Version = HttpVersion.Version11,
@@ -275,18 +409,30 @@ public sealed class MarketDataClient : IChartMarketDataClient
 
         using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         string json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"Tencent qfq daily failed. code={code}; HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
         }
 
         IReadOnlyList<MarketHistoryPoint> points = TencentHistoryParser.ParsePoints(json);
+        cancellationToken.ThrowIfCancellationRequested();
         if (points.Count == 0)
         {
             throw new InvalidOperationException("Tencent qfq daily failed. code=" + code + "; no qfqday data");
         }
 
-        string normalizedPayload = TencentHistoryParser.ToEastMoneyCompatiblePayload(json);
+        return new TencentDailyPage(url, points);
+    }
+
+    private static EastMoneyHistoryFetchResult BuildTencentHistoryResult(
+        string code,
+        string url,
+        IReadOnlyList<MarketHistoryPoint> points,
+        bool sourceExhausted,
+        int requestCount)
+    {
+        string normalizedPayload = TencentHistoryParser.ToEastMoneyCompatiblePayload(points);
         IReadOnlyList<MarketHistoryPoint> normalizedPoints = EastMoneyHistoryParser.ParsePoints(normalizedPayload);
         if (normalizedPoints.Count == 0)
         {
@@ -302,9 +448,59 @@ public sealed class MarketDataClient : IChartMarketDataClient
             RawPayload = normalizedPayload,
             High = normalizedPoints.Max(point => point.High),
             PointCount = normalizedPoints.Count,
-            LatestDrawdown = EastMoneyHistoryParser.CalculateLatestDrawdown(normalizedPoints)
+            LatestDrawdown = EastMoneyHistoryParser.CalculateLatestDrawdown(normalizedPoints),
+            IsSourceExhausted = sourceExhausted,
+            RequestCount = requestCount
         };
     }
+
+    private async Task WaitForTencentHistoryPageSlotAsync(string code, CancellationToken cancellationToken)
+    {
+        if (_scheduler is null)
+        {
+            await Task.Delay(TencentHistoryPageMinimumInterval, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DateTimeOffset now = _nowProvider();
+            if (_scheduler.TryAcquireRaw(
+                    "web.ifzq.gtimg.cn",
+                    "fqkline/get",
+                    code,
+                    TencentHistoryPageMinimumInterval,
+                    TencentHistoryPageMaximumInterval,
+                    now,
+                    countsAgainstNonQuoteBudget: false,
+                    out MarketRequestDecision decision))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return;
+            }
+
+            if (!decision.NextAllowedAt.HasValue)
+            {
+                throw new InvalidOperationException("Tencent qfq daily pagination blocked by scheduler. code=" + code + "; reason=" + decision.Reason);
+            }
+
+            TimeSpan delay = decision.NextAllowedAt.Value - now + TimeSpan.FromMilliseconds(100);
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool SameOhlc(MarketHistoryPoint left, MarketHistoryPoint right)
+        => NearlyEqual(left.Open, right.Open)
+           && NearlyEqual(left.High, right.High)
+           && NearlyEqual(left.Low, right.Low)
+           && NearlyEqual(left.Close, right.Close);
+
+    private static bool NearlyEqual(double left, double right)
+        => Math.Abs(left - right) <= 0.00000001;
 
     private static IEnumerable<(int Klt, string Host, string Variant, string Url)> BuildEastMoneyHistoryUrls(string secId, int fqt, bool preferDaily)
     {
@@ -354,6 +550,10 @@ public sealed class MarketDataClient : IChartMarketDataClient
 
         return string.Join(" | ", messages);
     }
+
+    private sealed record TencentDailyPage(
+        string Url,
+        IReadOnlyList<MarketHistoryPoint> Points);
 
     public void Dispose()
     {

@@ -105,6 +105,19 @@ public static class MarketHistoryQuality
             return Skip("SKIP_HISTORY_DOWNGRADE", symbol, oldQuality, newQuality);
         }
 
+        if (oldQuality.Frequency == MarketHistoryFrequency.DailyLike
+            && newQuality.Frequency == MarketHistoryFrequency.DailyLike
+            && oldQuality.FirstDate.HasValue
+            && newQuality.FirstDate.HasValue
+            && oldQuality.LastDate.HasValue
+            && newQuality.LastDate.HasValue
+            && newQuality.KLineCount < oldQuality.KLineCount
+            && newQuality.FirstDate.Value.Date > oldQuality.FirstDate.Value.Date
+            && newQuality.LastDate.Value.Date <= oldQuality.LastDate.Value.Date.AddDays(7))
+        {
+            return Skip("SKIP_HISTORY_SHRINK", symbol, oldQuality, newQuality);
+        }
+
         bool newDailyNotOlder = newQuality.Frequency == MarketHistoryFrequency.DailyLike
                                 && (!oldQuality.LastDate.HasValue
                                     || !newQuality.LastDate.HasValue

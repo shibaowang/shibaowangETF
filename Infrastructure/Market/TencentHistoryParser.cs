@@ -53,6 +53,14 @@ public static class TencentHistoryParser
     public static string ToEastMoneyCompatiblePayload(string json)
     {
         IReadOnlyList<MarketHistoryPoint> points = ParsePoints(json);
+        return ToEastMoneyCompatiblePayload(points);
+    }
+
+    public static string ToEastMoneyCompatiblePayload(IEnumerable<MarketHistoryPoint> source)
+    {
+        MarketHistoryPoint[] points = source
+            .OrderBy(point => point.Date)
+            .ToArray();
         string[] lines = points
             .Select(point => string.Join(",",
                 point.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),

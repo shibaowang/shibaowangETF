@@ -104,7 +104,7 @@ public sealed class ChartDataSourceRoutingTests
         SecurityChartSnapshot? snapshot = cache.GetSnapshot("159509", SecurityChartPeriod.Daily, SecurityChartSubPanel.Volume);
         Assert.NotNull(snapshot);
         Assert.True(snapshot!.MainStatus.IsReady);
-        Assert.Equal(180, snapshot.KLines.Count);
+        Assert.Equal(220, snapshot.KLines.Count);
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public sealed class ChartDataSourceRoutingTests
     }
 
     [Fact]
-    public async Task WeeklyAndMonthly_DoNotRequestNetworkAndUseDailyLikeHistory()
+    public async Task WeeklyAndMonthly_WithSufficientDailyLike_DoNotRequestNetwork()
     {
         var subscriptions = new ChartSubscriptionService();
         var cache = new ChartCache();
@@ -146,7 +146,7 @@ public sealed class ChartDataSourceRoutingTests
             Symbol = "159941",
             MarketType = "ETF",
             Source = MarketSources.TencentHistory,
-            RawPayload = DailyHistoryPayload(220),
+            RawPayload = DailyHistoryPayload(2200),
             ReceivedAt = "2026-06-24 09:30:00"
         };
 

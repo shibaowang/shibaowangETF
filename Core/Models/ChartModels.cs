@@ -80,7 +80,8 @@ public sealed record SecurityChartSnapshot(
     double? ChangePercent,
     double? PreviousClose,
     DateTimeOffset UpdatedAt,
-    bool HasQuoteTail);
+    bool HasQuoteTail,
+    ChartHistoryDepthInfo? HistoryDepth = null);
 
 public sealed record EastMoneyIntradayFetchResult(
     string SecId,

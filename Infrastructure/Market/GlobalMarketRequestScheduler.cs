@@ -114,6 +114,28 @@ public sealed class GlobalMarketRequestScheduler
         }
     }
 
+    public void ReleaseCancelledRequest(MarketRequestKind kind, string? symbol, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return;
+        }
+
+        MarketRequestProfile profile = BuildProfile(kind, now);
+        lock (_sync)
+        {
+            string key = SymbolKey(profile.Host, profile.Lane, profile.Endpoint, symbol);
+            if (!_nextAllowedReasons.TryGetValue(key, out NextAllowedReason reason)
+                || reason == NextAllowedReason.FailureCooldown)
+            {
+                return;
+            }
+
+            _nextAllowedAt.Remove(key);
+            _nextAllowedReasons.Remove(key);
+        }
+    }
+
     public DateTimeOffset? RecordFailure(MarketRequestKind kind, string? symbol, string error, DateTimeOffset now)
     {
         MarketRequestProfile profile = BuildProfile(kind, now);
