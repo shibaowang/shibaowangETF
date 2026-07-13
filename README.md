@@ -180,6 +180,10 @@ dotnet build .\CrossETF.Terminal.UiShell.Reference.sln -c Debug
 dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 ```
 
+## 正式发布
+
+从 `V8.2.1` 开始，正式发布必须使用 `scripts/Publish-CrossEtfRelease.ps1` 从最终标签 worktree 生成。程序集名称保持不变，脚本只在 publish 后将用户启动 AppHost 命名为 `跨境ETF.exe`，并可验证后更新当前用户桌面的 `跨境ETF.lnk`；`artifacts` 和快捷方式不得提交到 Git。`v8.2.0` 及以前发布目录不追溯改名。
+
 数据库位置：
 
 ```text
