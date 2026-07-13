@@ -65,6 +65,7 @@ public partial class SecurityChartWindow : Window
         SecurityNameText.Text = _security.Name;
         SecurityCodeText.Text = _security.StrategyCode + " / " + _security.ActualCode;
         UpdateButtonState();
+        UpdateMaximizeRestoreButton();
     }
 
     public SecurityChartPeriod Period { get; private set; }
@@ -1396,7 +1397,19 @@ public partial class SecurityChartWindow : Window
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
+        if (e.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximizeRestore();
+            e.Handled = true;
+            return;
+        }
+
+        if (WindowState == WindowState.Normal)
         {
             DragMove();
         }
@@ -1404,6 +1417,33 @@ public partial class SecurityChartWindow : Window
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
+
+    private void MaximizeRestoreButton_Click(object sender, RoutedEventArgs e)
+        => ToggleMaximizeRestore();
+
+    private void ToggleMaximizeRestore()
+    {
+        if (WindowState == WindowState.Normal)
+        {
+            SystemCommands.MaximizeWindow(this);
+        }
+        else if (WindowState == WindowState.Maximized)
+        {
+            SystemCommands.RestoreWindow(this);
+        }
+    }
+
+    private void SecurityChartWindow_StateChanged(object? sender, EventArgs e)
+        => UpdateMaximizeRestoreButton();
+
+    private void UpdateMaximizeRestoreButton()
+    {
+        bool isMaximized = WindowState == WindowState.Maximized;
+        string action = isMaximized ? "还原" : "最大化";
+        MaximizeRestoreButton.Content = isMaximized ? "❐" : "□";
+        MaximizeRestoreButton.ToolTip = action;
+        System.Windows.Automation.AutomationProperties.SetName(MaximizeRestoreButton, action);
+    }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
         => Close();

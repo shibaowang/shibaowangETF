@@ -11,6 +11,7 @@
         ResizeMode="CanResize"
         Background="#050B14"
         FontFamily="Microsoft YaHei UI"
+        StateChanged="SecurityChartWindow_StateChanged"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <shell:WindowChrome.WindowChrome>
@@ -108,6 +109,7 @@
                     <ColumnDefinition />
                     <ColumnDefinition Width="42" />
                     <ColumnDefinition Width="42" />
+                    <ColumnDefinition Width="42" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="WindowTitleText"
                            Margin="16,0,0,0"
@@ -119,7 +121,15 @@
                         Style="{StaticResource ChartButtonStyle}"
                         Padding="0"
                         Click="MinimizeButton_Click" />
-                <Button Grid.Column="2"
+                <Button x:Name="MaximizeRestoreButton"
+                        Grid.Column="2"
+                        Content="□"
+                        ToolTip="最大化"
+                        AutomationProperties.Name="最大化"
+                        Style="{StaticResource ChartButtonStyle}"
+                        Padding="0"
+                        Click="MaximizeRestoreButton_Click" />
+                <Button Grid.Column="3"
                         Content="×"
                         Style="{StaticResource ChartButtonStyle}"
                         Padding="0"
