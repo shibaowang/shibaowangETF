@@ -2,7 +2,7 @@
 
 本文档用于约束后续 Codex 任务：任何新修复开始前，都应先阅读本文件。除非用户明确授权，后续任务不得修改本文档列出的已收口行为。
 
-最近锁定任务：`TASK-CHART-ANALYSIS-008-PATCH-CANCEL`
+最近锁定任务：`TASK-RELEASE-PACKAGING-010`
 
 ## 1. 已锁定模块
 
@@ -799,6 +799,55 @@ Protection tests:
 - 主界面无手动刷新按钮。
 - 现有行情路由和防封逻辑。
 - 白闪、标题栏和 `WindowChrome`。
+
+### 1.25 TASK-CHART-WINDOW-MAXIMIZE-009：走势图窗口最大化与还原
+
+锁定基线：
+
+- 版本：`v8.2.1`
+- 窗口功能提交：`4d592eaae75b8145b6165e8cc53c04984f4060b7`
+- 测试基线：`971/971`
+
+锁定行为：
+
+1. `SecurityChartWindow` 标题栏按钮顺序固定为“最小化、最大化/还原、关闭”。
+2. 普通窗口状态显示最大化图标和“最大化”提示。
+3. 最大化窗口状态显示还原图标和“还原”提示。
+4. 最大化和还原必须使用 WPF `SystemCommands` 切换，不手工写入窗口尺寸或屏幕坐标。
+5. 双击标题栏必须在普通状态和最大化状态之间切换；双击不得继续执行 `DragMove`。
+6. 最大化必须使用当前显示器可用工作区，不得覆盖当前屏幕任务栏。
+7. 最大化和还原不得重置日K、周K或月K viewport、缩放比例或历史位置。
+8. 最大化和还原不得改变当前周期、MA 开关、B/S 标记或成交量/MACD 副图选择。
+9. 最大化和还原不得改变窗口 `LifetimeToken`，不得取消、重启或重新订阅深历史请求。
+10. `WindowStyle=None`、`ResizeMode=CanResize` 和既有 `WindowChrome` 配置保持不变。
+11. 本任务不得修改其它窗口及其标题栏行为。
+
+### 1.26 TASK-RELEASE-PACKAGING-010：发布文件中文命名与桌面快捷方式
+
+锁定基线：
+
+- 版本：`v8.2.1`
+- 窗口功能提交：`4d592eaae75b8145b6165e8cc53c04984f4060b7`
+- 发布规范提交：`c917517fe610632a17f84c7f0b9afe5700e96eb3`
+- 测试基线：`971/971`
+
+锁定行为：
+
+1. `V8.2.1` 及后续正式版本的用户启动文件统一命名为 `跨境ETF.exe`。
+2. 不得为中文 EXE 名称改变程序集 `AssemblyName` 或程序集身份。
+3. 必须由 `scripts/Publish-CrossEtfRelease.ps1` 在 `dotnet publish` 成功后重命名 AppHost EXE。
+4. 正式发布目录不得保留 `CrossETF.Terminal.UiShell.Reference.exe`。
+5. 当前用户桌面快捷方式统一命名为 `跨境ETF.lnk`。
+6. 快捷方式必须指向当前最新正式版本的 `跨境ETF.exe`。
+7. 快捷方式 `WorkingDirectory` 必须为对应正式发布目录。
+8. 快捷方式图标必须使用对应正式 `跨境ETF.exe,0`。
+9. 正式发布包必须来自最终版本标签对应的 detached worktree。
+10. `ProductVersion/InformationalVersion` 必须包含最终锁定提交完整哈希。
+11. 更新快捷方式前必须真实启动正式 EXE 至少 8 秒，并通过正常关闭验证。
+12. 必须先创建和验证临时快捷方式，再替换正式快捷方式；失败时不得破坏原有可用快捷方式。
+13. `artifacts` 和桌面 `.lnk` 不得提交到 Git。
+14. `v8.2.0` 及更早发布目录保持不变，不追溯改名。
+15. 后续正式版本必须继续使用统一发布脚本。
 
 ## 2. 后续任务解锁流程
 
