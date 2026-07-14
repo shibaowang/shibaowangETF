@@ -172,14 +172,14 @@ public sealed class DatabaseMaintenanceUiTests
     }
 
     [Fact]
-    public void VersionContract_IsV830WithoutChangingAssemblyName()
+    public void VersionContract_IsV840WithoutChangingAssemblyName()
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.3.0</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.3.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.3.0.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.3.0</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.4.0</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.4.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.4.0.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.4.0</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 

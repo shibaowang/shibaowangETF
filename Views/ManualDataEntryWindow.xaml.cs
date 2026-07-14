@@ -12,6 +12,7 @@ using System.Windows.Media;
 using CrossETF.Terminal.UiShell.Reference.Core.Models;
 using CrossETF.Terminal.UiShell.Reference.Core.Services;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Alert;
+using CrossETF.Terminal.UiShell.Reference.Infrastructure.Diagnostics;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Logging;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Persistence;
 
@@ -69,6 +70,7 @@ public partial class ManualDataEntryWindow : Window
 
     private readonly LocalDataRepository _repository;
     private readonly DatabaseBackupService _databaseBackupService;
+    private readonly RuntimeHealthMonitor? _runtimeHealthMonitor;
     private readonly ObservableCollection<StrategyConfigRecord> _strategies = new();
     private readonly ObservableCollection<PositionStateRecord> _positions = new();
     private readonly ObservableCollection<OtcChannelRecord> _otcChannels = new();
@@ -116,6 +118,8 @@ public partial class ManualDataEntryWindow : Window
     private TextBlock? _databaseBackupSummaryText;
     private TextBlock? _databaseBackupOperationText;
     private bool _databaseBackupOperationInProgress;
+    private readonly Dictionary<string, TextBlock> _runtimeHealthValueTexts = new(StringComparer.Ordinal);
+    private Button? _exportRuntimeHealthReportButton;
 
     public ManualDataEntryWindow(LocalDataRepository repository, string databasePath)
         : this(repository, databasePath, ManualEntryScope.All)
@@ -123,8 +127,18 @@ public partial class ManualDataEntryWindow : Window
     }
 
     public ManualDataEntryWindow(LocalDataRepository repository, string databasePath, ManualEntryScope scope)
+        : this(repository, databasePath, scope, runtimeHealthMonitor: null)
+    {
+    }
+
+    public ManualDataEntryWindow(
+        LocalDataRepository repository,
+        string databasePath,
+        ManualEntryScope scope,
+        RuntimeHealthMonitor? runtimeHealthMonitor)
     {
         _repository = repository;
+        _runtimeHealthMonitor = runtimeHealthMonitor;
         string applicationDirectory = Path.GetDirectoryName(databasePath)
             ?? throw new ArgumentException("无法解析数据库目录。", nameof(databasePath));
         _databaseBackupService = new DatabaseBackupService(
@@ -142,6 +156,11 @@ public partial class ManualDataEntryWindow : Window
         BuildTabs();
         LoadData();
         ApplyScope(scope);
+        if (_runtimeHealthMonitor is not null)
+        {
+            _runtimeHealthMonitor.SnapshotAvailable += RuntimeHealthMonitor_SnapshotAvailable;
+            Closed += ManualDataEntryWindow_RuntimeHealthClosed;
+        }
     }
 
     public ManualEntryScope Scope { get; private set; } = ManualEntryScope.All;
@@ -474,6 +493,7 @@ public partial class ManualDataEntryWindow : Window
         content.Children.Add(CreateMaintenanceText("策略配置、OTCMap、底仓基准请到“溢价决策”维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
         content.Children.Add(CreateMaintenanceText("TradeLog 请到“交易日志”维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
         content.Children.Add(CreateMaintenanceText("备份与恢复只处理已保存到本地 SQLite 的数据，不触发行情、回放、策略或委托。", 14, "#9CAFC3", FontWeights.Normal, new Thickness(0, 22, 0, 0)));
+        content.Children.Add(CreateRuntimeHealthPanel());
         content.Children.Add(CreateDatabaseBackupPanel());
         content.Children.Add(CreateAlertSettingsPanel());
         content.Children.Add(CreateHotkeySettingsPanel());
@@ -490,6 +510,256 @@ public partial class ManualDataEntryWindow : Window
         RefreshAlertSettingsUi();
         RefreshHotkeySettingsUi();
         _ = RefreshDatabaseBackupListAsync();
+    }
+
+    private UIElement CreateRuntimeHealthPanel()
+    {
+        var border = new Border
+        {
+            Margin = new Thickness(0, 24, 0, 0),
+            Padding = new Thickness(18),
+            Background = BrushFrom("#061B2A"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6)
+        };
+        var root = new StackPanel();
+        root.Children.Add(CreateMaintenanceText("运行稳定性", 17, "#E5EEF8", FontWeights.SemiBold));
+        root.Children.Add(CreateMaintenanceText(
+            "轻量只读监测：每 30 秒记录进程资源，每 5 秒探测一次 UI 响应；不触发行情、回放、策略或数据库写入。",
+            12,
+            "#9CAFC3",
+            FontWeights.Normal,
+            new Thickness(0, 7, 0, 0)));
+
+        var metrics = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        string[] fields =
+        {
+            "当前状态",
+            "已运行时间",
+            "当前工作集",
+            "当前私有内存",
+            ".NET 托管堆",
+            "30 分钟内存变化",
+            "当前线程数",
+            "当前句柄数",
+            "最近 Dispatcher 延迟",
+            "最大 Dispatcher 延迟",
+            "最近主刷新耗时",
+            "当前是否正在刷新",
+            "当前走势图窗口数量",
+            "最近采样时间",
+            "健康日志目录",
+            "最近状态原因"
+        };
+        _runtimeHealthValueTexts.Clear();
+        for (int row = 0; row < fields.Length; row++)
+        {
+            metrics.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            TextBlock label = CreateMaintenanceText(
+                fields[row],
+                12,
+                "#9CAFC3",
+                FontWeights.SemiBold,
+                new Thickness(0, row == 0 ? 0 : 7, 14, 0));
+            TextBlock value = CreateMaintenanceText(
+                "--",
+                12,
+                "#E5EEF8",
+                FontWeights.Normal,
+                new Thickness(0, row == 0 ? 0 : 7, 0, 0));
+            value.TextWrapping = TextWrapping.Wrap;
+            Grid.SetRow(label, row);
+            Grid.SetColumn(label, 0);
+            Grid.SetRow(value, row);
+            Grid.SetColumn(value, 1);
+            metrics.Children.Add(label);
+            metrics.Children.Add(value);
+            _runtimeHealthValueTexts[fields[row]] = value;
+        }
+
+        root.Children.Add(metrics);
+        var toolbar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+        Button refreshButton = CreateButton("刷新状态");
+        refreshButton.Click += (_, _) => RefreshRuntimeHealthPanel();
+        Button openDirectoryButton = CreateButton("打开健康日志目录");
+        openDirectoryButton.Click += (_, _) => OpenRuntimeHealthDirectory();
+        _exportRuntimeHealthReportButton = CreateButton("导出最近24小时报告");
+        _exportRuntimeHealthReportButton.Click += async (_, _) => await ExportRuntimeHealthReportAsync();
+        toolbar.Children.Add(refreshButton);
+        toolbar.Children.Add(openDirectoryButton);
+        toolbar.Children.Add(_exportRuntimeHealthReportButton);
+        root.Children.Add(toolbar);
+        border.Child = root;
+        RefreshRuntimeHealthPanel();
+        return border;
+    }
+
+    private void RuntimeHealthMonitor_SnapshotAvailable(object? sender, RuntimeHealthSnapshotEventArgs e)
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(
+            new Action(() => UpdateRuntimeHealthPanel(e.Snapshot)),
+            System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void ManualDataEntryWindow_RuntimeHealthClosed(object? sender, EventArgs e)
+    {
+        if (_runtimeHealthMonitor is not null)
+        {
+            _runtimeHealthMonitor.SnapshotAvailable -= RuntimeHealthMonitor_SnapshotAvailable;
+        }
+    }
+
+    private void RefreshRuntimeHealthPanel()
+    {
+        if (_runtimeHealthValueTexts.Count == 0)
+        {
+            return;
+        }
+
+        RuntimeHealthSnapshot? snapshot = _runtimeHealthMonitor?.CurrentSnapshot;
+        if (snapshot is null)
+        {
+            SetRuntimeHealthValue("当前状态", _runtimeHealthMonitor is null ? "监测服务未连接" : "等待首次采样", "#F59E0B");
+            SetRuntimeHealthValue("健康日志目录", _runtimeHealthMonitor?.HealthDirectory ?? "--");
+            return;
+        }
+
+        UpdateRuntimeHealthPanel(snapshot);
+    }
+
+    private void UpdateRuntimeHealthPanel(RuntimeHealthSnapshot snapshot)
+    {
+        string statusText = snapshot.HealthStatus switch
+        {
+            RuntimeHealthStatus.Normal => "正常",
+            RuntimeHealthStatus.Warning => "警告",
+            RuntimeHealthStatus.Critical => "严重",
+            _ => snapshot.HealthStatus.ToString()
+        };
+        string statusColor = snapshot.HealthStatus switch
+        {
+            RuntimeHealthStatus.Normal => "#84CC16",
+            RuntimeHealthStatus.Warning => "#F59E0B",
+            RuntimeHealthStatus.Critical => "#EF4444",
+            _ => "#E5EEF8"
+        };
+        if (!string.IsNullOrWhiteSpace(snapshot.MonitoringError))
+        {
+            statusText = "监测异常（业务继续运行）";
+            statusColor = "#F59E0B";
+        }
+
+        SetRuntimeHealthValue("当前状态", statusText, statusColor);
+        SetRuntimeHealthValue("已运行时间", FormatRuntimeDuration(snapshot.UptimeSeconds));
+        SetRuntimeHealthValue("当前工作集", FormatRuntimeBytes(snapshot.WorkingSetBytes));
+        SetRuntimeHealthValue("当前私有内存", FormatRuntimeBytes(snapshot.PrivateMemoryBytes));
+        SetRuntimeHealthValue(".NET 托管堆", FormatRuntimeBytes(snapshot.ManagedHeapBytes));
+        SetRuntimeHealthValue(
+            "30 分钟内存变化",
+            snapshot.PrivateMemoryChange30MinutesBytes.HasValue
+                ? FormatSignedRuntimeBytes(snapshot.PrivateMemoryChange30MinutesBytes.Value)
+                : "样本不足");
+        SetRuntimeHealthValue("当前线程数", snapshot.ThreadCount.ToString(CultureInfo.InvariantCulture));
+        SetRuntimeHealthValue("当前句柄数", snapshot.HandleCount.ToString(CultureInfo.InvariantCulture));
+        SetRuntimeHealthValue("最近 Dispatcher 延迟", $"{snapshot.DispatcherLagMilliseconds:F0} ms");
+        SetRuntimeHealthValue("最大 Dispatcher 延迟", $"{snapshot.MaximumDispatcherLagSinceLastSample:F0} ms");
+        SetRuntimeHealthValue(
+            "最近主刷新耗时",
+            snapshot.LastUiRefreshDurationMilliseconds.HasValue
+                ? $"{snapshot.LastUiRefreshDurationMilliseconds.Value:F0} ms"
+                : "--");
+        SetRuntimeHealthValue("当前是否正在刷新", snapshot.UiRefreshCurrentlyRunning ? "是" : "否");
+        SetRuntimeHealthValue("当前走势图窗口数量", snapshot.OpenChartWindowCount.ToString(CultureInfo.InvariantCulture));
+        SetRuntimeHealthValue("最近采样时间", snapshot.Timestamp.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+        SetRuntimeHealthValue("健康日志目录", _runtimeHealthMonitor?.HealthDirectory ?? "--");
+        SetRuntimeHealthValue(
+            "最近状态原因",
+            snapshot.HealthReasons.Length == 0 ? "无" : string.Join("；", snapshot.HealthReasons));
+    }
+
+    private void SetRuntimeHealthValue(string field, string value, string color = "#E5EEF8")
+    {
+        if (_runtimeHealthValueTexts.TryGetValue(field, out TextBlock? text))
+        {
+            text.Text = value;
+            text.Foreground = BrushFrom(color);
+        }
+    }
+
+    private void OpenRuntimeHealthDirectory()
+    {
+        if (_runtimeHealthMonitor is null)
+        {
+            MessageBox.Show(this, "运行健康监测服务未连接。", "运行稳定性", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_runtimeHealthMonitor.HealthDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _runtimeHealthMonitor.HealthDirectory,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "无法打开健康日志目录：" + ex.Message, "运行稳定性", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async Task ExportRuntimeHealthReportAsync()
+    {
+        if (_runtimeHealthMonitor is null || _exportRuntimeHealthReportButton is null)
+        {
+            MessageBox.Show(this, "运行健康监测服务未连接。", "运行稳定性", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _exportRuntimeHealthReportButton.IsEnabled = false;
+        try
+        {
+            RuntimeHealthReportExportResult result = await Task.Run(
+                () => _runtimeHealthMonitor.ExportLast24HoursAsync());
+            string message = result.Success
+                ? $"{result.Message}\nJSON：{result.JsonPath}\nTXT：{result.TextPath}"
+                : result.Message;
+            MessageBox.Show(
+                this,
+                message,
+                "运行稳定性",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _exportRuntimeHealthReportButton.IsEnabled = true;
+        }
+    }
+
+    private static string FormatRuntimeDuration(double seconds)
+        => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString("d'.'hh':'mm':'ss", CultureInfo.InvariantCulture);
+
+    private static string FormatRuntimeBytes(long bytes)
+        => $"{bytes / 1024d / 1024d:F2} MB";
+
+    private static string FormatSignedRuntimeBytes(long bytes)
+    {
+        string sign = bytes > 0 ? "+" : string.Empty;
+        return $"{sign}{bytes / 1024d / 1024d:F2} MB";
     }
 
     private UIElement CreateDatabaseBackupPanel()

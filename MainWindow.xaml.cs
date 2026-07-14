@@ -17,6 +17,7 @@ using System.Windows.Threading;
 using CrossETF.Terminal.UiShell.Reference.Core.Models;
 using CrossETF.Terminal.UiShell.Reference.Core.Services;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Alert;
+using CrossETF.Terminal.UiShell.Reference.Infrastructure.Diagnostics;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Logging;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Market;
 using CrossETF.Terminal.UiShell.Reference.Infrastructure.Persistence;
@@ -75,6 +76,7 @@ public partial class MainWindow : Window
     private readonly ChartWindowManager _chartWindowManager;
     private readonly CancellationTokenSource _marketRefreshCts = new();
     private readonly DispatcherTimer _refreshTimer = new();
+    private readonly RuntimeHealthMonitor _runtimeHealthMonitor;
     private readonly Random _random = new();
     private IReadOnlyList<StrategyConfigRecord> _strategies = Array.Empty<StrategyConfigRecord>();
     private IReadOnlyList<PositionStateRecord> _positions = Array.Empty<PositionStateRecord>();
@@ -134,6 +136,7 @@ public partial class MainWindow : Window
             historyDepthCheckpointWriter: (key, value) => _repository.SaveAppSetting(key, value));
         InitializeComponent();
         VersionText.Text = BuildVersionDisplayText();
+        _runtimeHealthMonitor = RuntimeHealthMonitor.CreateDefault(ResolveDisplayVersion(), Dispatcher);
         _chartWindowManager = new ChartWindowManager(
             this,
             _chartSubscriptions,
@@ -153,6 +156,7 @@ public partial class MainWindow : Window
         };
         Loaded += (_, _) =>
         {
+            _runtimeHealthMonitor.Start();
             UpdateDesignSurfaceWidth();
             BuildNavigation();
             RefreshLocalDataAndUi();
@@ -165,6 +169,8 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
+            _runtimeHealthMonitor.StopAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+            _runtimeHealthMonitor.Dispose();
             _refreshTimer.Stop();
             _marketRefreshCts.Cancel();
             _globalHotkeyService.Dispose();
@@ -408,68 +414,82 @@ public partial class MainWindow : Window
 
     private void RefreshLocalDataAndUi()
     {
-        var stopwatch = Stopwatch.StartNew();
-        UpdateClock();
-
+        _runtimeHealthMonitor.NotifyUiRefreshStarted();
+        var healthStopwatch = Stopwatch.StartNew();
+        bool refreshSucceeded = false;
         try
         {
-            _database.Initialize();
-            _strategies = _repository.ReadStrategyConfigs();
-            _accountState = _repository.ReadLatestAccountState();
-            _positions = _repository.ReadPositionStates();
-            _otcChannels = _repository.ReadOtcChannels();
-            _tradeLogs = _repository.ReadTradeLogs();
-            _marketQuotes = _repository.ReadMarketQuoteCache();
-            _marketHistory = _repository.ReadMarketHistoryCache();
-            _marketStatuses = _repository.ReadMarketSourceStatuses();
-            _accountReplayState = _repository.ReadLatestAccountReplayState();
-            _accountReplaySnapshots = _repository.ReadAccountReplaySnapshots();
-            _replayPositions = _repository.ReadPositionReplayStates();
-            _replayOtcPositions = _repository.ReadOtcPositionReplayStates();
-            _basePositionSettings = _repository.ReadBasePositionSettings();
-            _alertSettings = _repository.ReadAlertSettings();
-            _strategyDecisions = _repository.ReadStrategyDecisionStates();
-            _orderDrafts = _repository.ReadOrderDraftStates();
-            _orderDraftLegs = _repository.ReadOrderDraftLegStates();
-            _orderFinalizations = _repository.ReadOrderFinalizationStates();
-            _runtimeLogs = _repository.ReadRecentRuntimeLogs(60);
-            stopwatch.Stop();
-            _lastRefreshElapsedMs = stopwatch.ElapsedMilliseconds;
+            var stopwatch = Stopwatch.StartNew();
+            UpdateClock();
 
-            bool configured = _strategies.Count > 0 || _accountState is not null;
-            UpdateMarketRuntimeStatus(configured);
-            ApplyAccountReplayRuntimeStatus();
-            _marketRequestScheduler.BeginTick(DateTimeOffset.Now);
-            QueueAccountReplayIfNeeded();
-            QueueStrategyDecisionIfNeeded();
-            QueueOrderDraftIfNeeded();
-            if (!RuntimeMode.IsSmokeMode())
+            bool localReadSucceeded = true;
+            try
             {
-                QueueAlertDeliveryIfNeeded();
-                QueueChartRefresh();
-                QueueMarketRefresh();
-            }
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            _lastRefreshElapsedMs = stopwatch.ElapsedMilliseconds;
-            _runtimeStatus = "错误：本地数据库读取失败";
-            _runtimeStatusColor = Red;
-            TryWriteRuntimeLog("ERROR", "MainWindow", "本地数据库读取失败", ex.ToString());
-        }
+                _database.Initialize();
+                _strategies = _repository.ReadStrategyConfigs();
+                _accountState = _repository.ReadLatestAccountState();
+                _positions = _repository.ReadPositionStates();
+                _otcChannels = _repository.ReadOtcChannels();
+                _tradeLogs = _repository.ReadTradeLogs();
+                _marketQuotes = _repository.ReadMarketQuoteCache();
+                _marketHistory = _repository.ReadMarketHistoryCache();
+                _marketStatuses = _repository.ReadMarketSourceStatuses();
+                _accountReplayState = _repository.ReadLatestAccountReplayState();
+                _accountReplaySnapshots = _repository.ReadAccountReplaySnapshots();
+                _replayPositions = _repository.ReadPositionReplayStates();
+                _replayOtcPositions = _repository.ReadOtcPositionReplayStates();
+                _basePositionSettings = _repository.ReadBasePositionSettings();
+                _alertSettings = _repository.ReadAlertSettings();
+                _strategyDecisions = _repository.ReadStrategyDecisionStates();
+                _orderDrafts = _repository.ReadOrderDraftStates();
+                _orderDraftLegs = _repository.ReadOrderDraftLegStates();
+                _orderFinalizations = _repository.ReadOrderFinalizationStates();
+                _runtimeLogs = _repository.ReadRecentRuntimeLogs(60);
+                stopwatch.Stop();
+                _lastRefreshElapsedMs = stopwatch.ElapsedMilliseconds;
 
-        UpdateRuntimeStatus();
-        UpdateTopMarketQuotes();
-        UpdateAccountCards();
-        UpdateOtcPanel();
-        DrawSparklines();
-        DrawRing();
-        DrawPool();
-        DrawDrawdownCharts();
-        BuildEtfTable();
-        BuildOrderDraftPanel();
-        BuildTradeLog();
+                bool configured = _strategies.Count > 0 || _accountState is not null;
+                UpdateMarketRuntimeStatus(configured);
+                ApplyAccountReplayRuntimeStatus();
+                _marketRequestScheduler.BeginTick(DateTimeOffset.Now);
+                QueueAccountReplayIfNeeded();
+                QueueStrategyDecisionIfNeeded();
+                QueueOrderDraftIfNeeded();
+                if (!RuntimeMode.IsSmokeMode())
+                {
+                    QueueAlertDeliveryIfNeeded();
+                    QueueChartRefresh();
+                    QueueMarketRefresh();
+                }
+            }
+            catch (Exception ex)
+            {
+                localReadSucceeded = false;
+                stopwatch.Stop();
+                _lastRefreshElapsedMs = stopwatch.ElapsedMilliseconds;
+                _runtimeStatus = "错误：本地数据库读取失败";
+                _runtimeStatusColor = Red;
+                TryWriteRuntimeLog("ERROR", "MainWindow", "本地数据库读取失败", ex.ToString());
+            }
+
+            UpdateRuntimeStatus();
+            UpdateTopMarketQuotes();
+            UpdateAccountCards();
+            UpdateOtcPanel();
+            DrawSparklines();
+            DrawRing();
+            DrawPool();
+            DrawDrawdownCharts();
+            BuildEtfTable();
+            BuildOrderDraftPanel();
+            BuildTradeLog();
+            refreshSucceeded = localReadSucceeded;
+        }
+        finally
+        {
+            healthStopwatch.Stop();
+            _runtimeHealthMonitor.NotifyUiRefreshCompleted(refreshSucceeded, healthStopwatch.Elapsed);
+        }
     }
 
     private void UpdateClock()
@@ -1461,7 +1481,7 @@ public partial class MainWindow : Window
 
     private void OpenManualEntry(ManualEntryScope scope)
     {
-        var window = new ManualDataEntryWindow(_repository, _database.DatabasePath, scope)
+        var window = new ManualDataEntryWindow(_repository, _database.DatabasePath, scope, _runtimeHealthMonitor)
         {
             Owner = this,
             SaveHotkeySettingsRequested = SaveHotkeySettingsFromSettingsWindow

@@ -17,7 +17,7 @@ release/
 *.tmp
 *.cache
 *_trace.json
-diagnostics/
+/diagnostics/
 .agents/
 Tools/TencentProbe/*result*.json
 ui-task-*.png

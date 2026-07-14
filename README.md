@@ -188,6 +188,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 从 `V8.3.0` 测试版开始，系统设置的“系统维护”页提供本地 SQLite 安全备份与恢复。活动数据库使用 SQLite `BackupDatabase` 生成包含 WAL 已提交数据的一致性快照，并执行 `integrity_check` 和基础表校验；升级前及每日首次启动自动保护，手动恢复采用双确认、受控暂存、下次启动前替换、恢复前安全备份和失败回滚。备份仅保存在 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\backups`，不上传网络，不改变正式数据库路径，不自动写 TradeLog。详细约束见 `docs/TASK_DATA_BACKUP_RESTORE_011.md`。
 
+`V8.4.0` 测试版在“系统维护”页增加只读运行稳定性面板：每 30 秒记录进程资源和主刷新状态，每 5 秒探测 Dispatcher 响应，健康记录保存在 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\health`，并可导出最近 24 小时 JSON/TXT 报告。该监测不写 SQLite、不触发行情或交易、不强制 GC，也不改变主界面原 2 至 4 秒随机刷新规则。详细边界见 `docs/TASK_RUNTIME_STABILITY_012.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```
