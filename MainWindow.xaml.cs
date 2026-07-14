@@ -116,6 +116,11 @@ public partial class MainWindow : Window
     {
         _database = new LocalDatabase();
         _repository = new LocalDataRepository(_database);
+        if (Application.Current is App app)
+        {
+            app.CompleteDatabaseStartup(_repository);
+        }
+
         _marketRefreshService = new MarketDataRefreshService(_repository, _marketRequestScheduler);
         _chartRefreshCoordinator = new ChartDataRefreshCoordinator(
             _chartSubscriptions,
@@ -153,6 +158,10 @@ public partial class MainWindow : Window
             RefreshLocalDataAndUi();
             ScheduleNextRefresh();
             WriteDiagnostics();
+            if (Application.Current is App app)
+            {
+                app.ShowDatabaseStartupNotifications(this);
+            }
         };
         Closed += (_, _) =>
         {

@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -66,10 +68,12 @@ public partial class ManualDataEntryWindow : Window
     private const string TradeLogColumnLayoutKey = "trade_log";
 
     private readonly LocalDataRepository _repository;
+    private readonly DatabaseBackupService _databaseBackupService;
     private readonly ObservableCollection<StrategyConfigRecord> _strategies = new();
     private readonly ObservableCollection<PositionStateRecord> _positions = new();
     private readonly ObservableCollection<OtcChannelRecord> _otcChannels = new();
     private readonly ObservableCollection<TradeLogRecord> _tradeLogs = new();
+    private readonly ObservableCollection<DatabaseBackupValidationResult> _databaseBackups = new();
     private readonly HashSet<long> _deletedStrategyIds = new();
     private readonly HashSet<long> _deletedPositionIds = new();
     private readonly HashSet<long> _deletedOtcIds = new();
@@ -104,6 +108,14 @@ public partial class ManualDataEntryWindow : Window
     private DataGrid _otcGrid = null!;
     private DataGrid _tradeLogGrid = null!;
     private bool _isApplyingColumnLayout;
+    private DataGrid? _databaseBackupGrid;
+    private Button? _createDatabaseBackupButton;
+    private Button? _refreshDatabaseBackupListButton;
+    private Button? _openDatabaseBackupDirectoryButton;
+    private Button? _restoreDatabaseBackupButton;
+    private TextBlock? _databaseBackupSummaryText;
+    private TextBlock? _databaseBackupOperationText;
+    private bool _databaseBackupOperationInProgress;
 
     public ManualDataEntryWindow(LocalDataRepository repository, string databasePath)
         : this(repository, databasePath, ManualEntryScope.All)
@@ -113,6 +125,13 @@ public partial class ManualDataEntryWindow : Window
     public ManualDataEntryWindow(LocalDataRepository repository, string databasePath, ManualEntryScope scope)
     {
         _repository = repository;
+        string applicationDirectory = Path.GetDirectoryName(databasePath)
+            ?? throw new ArgumentException("无法解析数据库目录。", nameof(databasePath));
+        _databaseBackupService = new DatabaseBackupService(
+            databasePath,
+            Path.Combine(applicationDirectory, DatabaseBackupService.BackupDirectoryName),
+            Path.Combine(applicationDirectory, DatabaseBackupService.RestoreDirectoryName),
+            MainWindow.ResolveDisplayVersion());
         InitializeComponent();
         SourceInitialized += (_, _) =>
         {
@@ -443,7 +462,7 @@ public partial class ManualDataEntryWindow : Window
 
         var content = new StackPanel
         {
-            MaxWidth = 760,
+            MaxWidth = 1040,
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
@@ -454,7 +473,8 @@ public partial class ManualDataEntryWindow : Window
         content.Children.Add(CreateMaintenanceText("账户状态和持仓已由 TradeLog 自动回放生成，不再手动维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
         content.Children.Add(CreateMaintenanceText("策略配置、OTCMap、底仓基准请到“溢价决策”维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
         content.Children.Add(CreateMaintenanceText("TradeLog 请到“交易日志”维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
-        content.Children.Add(CreateMaintenanceText("后续维护功能：数据备份 / 恢复、运行日志、版本信息。", 14, "#9CAFC3", FontWeights.Normal, new Thickness(0, 22, 0, 0)));
+        content.Children.Add(CreateMaintenanceText("备份与恢复只处理已保存到本地 SQLite 的数据，不触发行情、回放、策略或委托。", 14, "#9CAFC3", FontWeights.Normal, new Thickness(0, 22, 0, 0)));
+        content.Children.Add(CreateDatabaseBackupPanel());
         content.Children.Add(CreateAlertSettingsPanel());
         content.Children.Add(CreateHotkeySettingsPanel());
 
@@ -469,6 +489,316 @@ public partial class ManualDataEntryWindow : Window
         SystemMaintenanceTabRoot.Children.Add(scroll);
         RefreshAlertSettingsUi();
         RefreshHotkeySettingsUi();
+        _ = RefreshDatabaseBackupListAsync();
+    }
+
+    private UIElement CreateDatabaseBackupPanel()
+    {
+        var border = new Border
+        {
+            Margin = new Thickness(0, 24, 0, 0),
+            Padding = new Thickness(18),
+            Background = BrushFrom("#061B2A"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6)
+        };
+        var root = new StackPanel();
+        root.Children.Add(CreateMaintenanceText("数据库备份与恢复", 17, "#E5EEF8", FontWeights.SemiBold));
+        root.Children.Add(CreateMaintenanceText(
+            "备份仅包含已经保存到数据库的数据；界面中尚未保存的编辑内容不会进入备份。",
+            13,
+            "#F59E0B",
+            FontWeights.Normal,
+            new Thickness(0, 8, 0, 0)));
+        root.Children.Add(CreateMaintenanceText(
+            "当前数据库：" + _databaseBackupService.DatabasePath,
+            12,
+            "#9CAFC3",
+            FontWeights.Normal,
+            new Thickness(0, 12, 0, 0)));
+        root.Children.Add(CreateMaintenanceText(
+            "备份目录：" + _databaseBackupService.BackupDirectory,
+            12,
+            "#9CAFC3",
+            FontWeights.Normal,
+            new Thickness(0, 4, 0, 0)));
+
+        _databaseBackupSummaryText = CreateMaintenanceText(
+            "正在读取备份状态...",
+            13,
+            "#C8D8E8",
+            FontWeights.Normal,
+            new Thickness(0, 10, 0, 0));
+        root.Children.Add(_databaseBackupSummaryText);
+
+        var toolbar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 14, 0, 0)
+        };
+        _createDatabaseBackupButton = CreateButton("立即备份");
+        _createDatabaseBackupButton.Click += async (_, _) => await CreateManualDatabaseBackupAsync();
+        _refreshDatabaseBackupListButton = CreateButton("刷新列表");
+        _refreshDatabaseBackupListButton.Click += async (_, _) => await RefreshDatabaseBackupListAsync();
+        _openDatabaseBackupDirectoryButton = CreateButton("打开备份目录");
+        _openDatabaseBackupDirectoryButton.Click += (_, _) => OpenDatabaseBackupDirectory();
+        _restoreDatabaseBackupButton = CreateButton("恢复选中备份");
+        _restoreDatabaseBackupButton.Click += async (_, _) => await ConfirmAndStageDatabaseRestoreAsync();
+        toolbar.Children.Add(_createDatabaseBackupButton);
+        toolbar.Children.Add(_refreshDatabaseBackupListButton);
+        toolbar.Children.Add(_openDatabaseBackupDirectoryButton);
+        toolbar.Children.Add(_restoreDatabaseBackupButton);
+        root.Children.Add(toolbar);
+
+        _databaseBackupGrid = CreateDataGrid(_databaseBackups);
+        _databaseBackupGrid.Height = 250;
+        _databaseBackupGrid.Margin = new Thickness(0, 12, 0, 0);
+        _databaseBackupGrid.IsReadOnly = true;
+        _databaseBackupGrid.SelectionMode = DataGridSelectionMode.Single;
+        _databaseBackupGrid.SelectionUnit = DataGridSelectionUnit.FullRow;
+        _databaseBackupGrid.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+        _databaseBackupGrid.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        _databaseBackupGrid.SelectionChanged += (_, _) => UpdateDatabaseBackupButtonState();
+        AddTextColumn(_databaseBackupGrid, "备份时间", nameof(DatabaseBackupValidationResult.CreatedAtText), 160, true);
+        AddTextColumn(_databaseBackupGrid, "类型", nameof(DatabaseBackupValidationResult.BackupKindText), 90, true);
+        AddTextColumn(_databaseBackupGrid, "版本", nameof(DatabaseBackupValidationResult.Version), 90, true);
+        AddTextColumn(_databaseBackupGrid, "文件大小", nameof(DatabaseBackupValidationResult.FileSizeText), 90, true);
+        AddTextColumn(_databaseBackupGrid, "完整性", nameof(DatabaseBackupValidationResult.IntegrityText), 80, true);
+        AddTextColumn(_databaseBackupGrid, "文件名", nameof(DatabaseBackupValidationResult.FileName), 390, true);
+        root.Children.Add(_databaseBackupGrid);
+
+        _databaseBackupOperationText = CreateMaintenanceText(
+            "操作状态：就绪",
+            12,
+            "#9CAFC3",
+            FontWeights.Normal,
+            new Thickness(0, 10, 0, 0));
+        root.Children.Add(_databaseBackupOperationText);
+        border.Child = root;
+        UpdateDatabaseBackupButtonState();
+        return border;
+    }
+
+    private async Task CreateManualDatabaseBackupAsync()
+    {
+        if (_databaseBackupOperationInProgress)
+        {
+            return;
+        }
+
+        SetDatabaseBackupBusy(true, "正在创建一致性备份...");
+        try
+        {
+            DatabaseBackupOperationResult result = await _databaseBackupService.CreateBackupAsync(DatabaseBackupKind.Manual);
+            if (!result.Success || result.Backup is null)
+            {
+                SetDatabaseBackupOperationStatus(result.Message, true);
+                MessageBox.Show(this, result.Message, "数据库备份失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            await RefreshDatabaseBackupListCoreAsync();
+            string successMessage = string.Join(Environment.NewLine, new[]
+            {
+                "数据库备份成功。",
+                "文件：" + result.Backup.FileName,
+                "时间：" + result.Backup.CreatedAtText,
+                "大小：" + result.Backup.FileSizeText,
+                "当前有效备份：" + _databaseBackups.Count(item => item.IsValid).ToString(CultureInfo.InvariantCulture)
+            });
+            SetDatabaseBackupOperationStatus(successMessage.Replace(Environment.NewLine, "；", StringComparison.Ordinal), false);
+            MessageBox.Show(this, successMessage, "数据库备份完成", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            SetDatabaseBackupOperationStatus("数据库备份失败：" + ex.Message, true);
+            MessageBox.Show(this, "数据库备份失败：" + ex.Message, "数据库备份失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetDatabaseBackupBusy(false, null);
+        }
+    }
+
+    private async Task RefreshDatabaseBackupListAsync()
+    {
+        if (_databaseBackupOperationInProgress)
+        {
+            return;
+        }
+
+        SetDatabaseBackupBusy(true, "正在读取本地备份列表...");
+        try
+        {
+            await RefreshDatabaseBackupListCoreAsync();
+            SetDatabaseBackupOperationStatus("备份列表已刷新。", false);
+        }
+        catch (Exception ex)
+        {
+            SetDatabaseBackupOperationStatus("备份列表读取失败：" + ex.Message, true);
+        }
+        finally
+        {
+            SetDatabaseBackupBusy(false, null);
+        }
+    }
+
+    private async Task RefreshDatabaseBackupListCoreAsync()
+    {
+        (IReadOnlyList<DatabaseBackupValidationResult> Backups, DatabaseBackupSummary Summary) snapshot = await Task.Run(() =>
+        {
+            IReadOnlyList<DatabaseBackupValidationResult> backups = _databaseBackupService.ReadBackupList();
+            return (backups, _databaseBackupService.BuildSummary(backups));
+        });
+        IReadOnlyList<DatabaseBackupValidationResult> backups = snapshot.Backups;
+        DatabaseBackupSummary summary = snapshot.Summary;
+        ReplaceCollection(_databaseBackups, backups);
+        if (_databaseBackupSummaryText is not null)
+        {
+            string latest = summary.LatestValidBackupAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "--";
+            _databaseBackupSummaryText.Text =
+                $"最近有效备份：{latest}    有效备份数量：{summary.ValidBackupCount}    自动备份状态：{summary.AutomaticBackupStatus}";
+        }
+
+        UpdateDatabaseBackupButtonState();
+    }
+
+    private void OpenDatabaseBackupDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(_databaseBackupService.BackupDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _databaseBackupService.BackupDirectory,
+                UseShellExecute = true
+            });
+            SetDatabaseBackupOperationStatus("已打开备份目录。", false);
+        }
+        catch (Exception ex)
+        {
+            SetDatabaseBackupOperationStatus("打开备份目录失败：" + ex.Message, true);
+        }
+    }
+
+    private async Task ConfirmAndStageDatabaseRestoreAsync()
+    {
+        if (_databaseBackupOperationInProgress
+            || _databaseBackupGrid?.SelectedItem is not DatabaseBackupValidationResult selected
+            || !selected.CanRestore)
+        {
+            return;
+        }
+
+        string firstConfirmation = string.Join(Environment.NewLine, new[]
+        {
+            "即将准备恢复以下数据库备份：",
+            "文件：" + selected.FileName,
+            "时间：" + selected.CreatedAtText,
+            "版本：V" + selected.Version,
+            string.Empty,
+            "当前数据库将在下次启动前被替换。",
+            "未保存的界面编辑不会保留。",
+            "恢复后需要重新打开程序。"
+        });
+        if (MessageBox.Show(
+                this,
+                firstConfirmation,
+                "确认数据库恢复",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        if (MessageBox.Show(
+                this,
+                "确认恢复此备份并关闭程序",
+                "再次确认数据库恢复",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        SetDatabaseBackupBusy(true, "正在校验并暂存恢复请求...");
+        try
+        {
+            DatabaseRestoreStageResult result = await _databaseBackupService.StageRestoreAsync(selected.FilePath);
+            if (!result.Success)
+            {
+                SetDatabaseBackupOperationStatus(result.Message, true);
+                MessageBox.Show(this, result.Message, "恢复请求准备失败", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            MessageBox.Show(
+                this,
+                "恢复请求已准备，程序将关闭，请重新打开桌面跨境ETF。",
+                "恢复请求已准备",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            SetDatabaseBackupOperationStatus("恢复请求准备失败：" + ex.Message, true);
+            MessageBox.Show(this, "恢复请求准备失败：" + ex.Message, "恢复请求准备失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetDatabaseBackupBusy(false, null);
+        }
+    }
+
+    private void SetDatabaseBackupBusy(bool isBusy, string? status)
+    {
+        _databaseBackupOperationInProgress = isBusy;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            SetDatabaseBackupOperationStatus(status, false);
+        }
+
+        UpdateDatabaseBackupButtonState();
+    }
+
+    private void UpdateDatabaseBackupButtonState()
+    {
+        bool enabled = !_databaseBackupOperationInProgress;
+        if (_createDatabaseBackupButton is not null)
+        {
+            _createDatabaseBackupButton.IsEnabled = enabled;
+        }
+
+        if (_refreshDatabaseBackupListButton is not null)
+        {
+            _refreshDatabaseBackupListButton.IsEnabled = enabled;
+        }
+
+        if (_openDatabaseBackupDirectoryButton is not null)
+        {
+            _openDatabaseBackupDirectoryButton.IsEnabled = enabled;
+        }
+
+        if (_restoreDatabaseBackupButton is not null)
+        {
+            _restoreDatabaseBackupButton.IsEnabled = enabled
+                                                     && _databaseBackupGrid?.SelectedItem is DatabaseBackupValidationResult { CanRestore: true };
+        }
+    }
+
+    private void SetDatabaseBackupOperationStatus(string message, bool isError)
+    {
+        if (_databaseBackupOperationText is null)
+        {
+            return;
+        }
+
+        _databaseBackupOperationText.Text = "操作状态：" + message;
+        _databaseBackupOperationText.Foreground = BrushFrom(isError ? "#EF4444" : "#9CAFC3");
     }
 
     public void RefreshAlertSettingsUi()

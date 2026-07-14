@@ -186,6 +186,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 数据库位置：
 
+从 `V8.3.0` 测试版开始，系统设置的“系统维护”页提供本地 SQLite 安全备份与恢复。活动数据库使用 SQLite `BackupDatabase` 生成包含 WAL 已提交数据的一致性快照，并执行 `integrity_check` 和基础表校验；升级前及每日首次启动自动保护，手动恢复采用双确认、受控暂存、下次启动前替换、恢复前安全备份和失败回滚。备份仅保存在 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\backups`，不上传网络，不改变正式数据库路径，不自动写 TradeLog。详细约束见 `docs/TASK_DATA_BACKUP_RESTORE_011.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```
