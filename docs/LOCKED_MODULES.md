@@ -2,7 +2,7 @@
 
 本文档用于约束后续 Codex 任务：任何新修复开始前，都应先阅读本文件。除非用户明确授权，后续任务不得修改本文档列出的已收口行为。
 
-最近锁定任务：`TASK-DATA-BACKUP-RESTORE-011`
+最近锁定任务：`TASK-RUNTIME-STABILITY-012`
 
 ## 1. 已锁定模块
 
@@ -990,6 +990,182 @@ Protection tests:
 2. 不上传云端，不使用 FTP、网盘或任何外部网络。
 3. 不要求管理员权限，不增加 Windows 服务或常驻进程。
 4. 用户数据库、备份、恢复文件和锁文件不得提交到 Git。
+
+### TASK-RUNTIME-STABILITY-012：长时间运行稳定性与资源健康监测
+
+锁定基线：
+
+- 版本：`v8.4.0`
+- 功能提交：`5491c7a50603db24100716d79f974b94f1e150b8`
+- 测试基线：`1152/1152`
+- 人工运行基线：连续运行超过 2 小时；250 个采样；Normal 250；Warning 0；Critical 0；写入错误 0；无异常退出证据。
+
+#### A. 目录与存储边界
+
+1. 健康目录固定为 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\health`。
+2. 日志文件格式固定为 `runtime-health-yyyyMMdd-pid<PID>.jsonl`。
+3. 单文件超过 20 MB 后使用 `-partN` 滚动。
+4. 最多保留最近 7 个自然日。
+5. 多进程必须通过 PID 隔离。
+6. 健康采样不得写入 SQLite。
+7. 健康目录、JSONL 和报告不得提交 Git。
+8. 不得写入 `backups` 或 `restore` 目录。
+9. 不得上传网络。
+
+#### B. 采样频率
+
+1. 完整资源采样每 30 秒一次。
+2. Dispatcher 探测每 5 秒一次。
+3. 不得改变主界面随机 2-4 秒行情刷新。
+4. 上一轮未完成时不得堆积下一轮。
+5. 程序关闭时必须停止采样。
+6. 不得使用 `Thread.Sleep` 阻塞 UI 线程。
+7. 不得留下前台线程。
+
+#### C. 采样指标
+
+锁定只读指标：
+
+- WorkingSet。
+- PrivateMemory。
+- ManagedHeap。
+- ThreadCount。
+- HandleCount。
+- GC 次数。
+- CPU 时间。
+- Dispatcher 延迟。
+- 主刷新状态和耗时。
+- 窗口数量。
+- 运行时长。
+- 退出状态。
+
+禁止采集：
+
+- TradeLog 内容。
+- 交易金额。
+- 账户余额。
+- 持仓数量。
+- 策略参数明细。
+- Token。
+- 行情 payload。
+- SQL 内容。
+- 用户输入内容。
+- 截图。
+
+#### D. Dispatcher 探测
+
+1. 使用异步 Dispatcher 投递。
+2. 不得使用无限等待的同步 `Invoke`。
+3. 回调中不得读取数据库、刷新 UI 或写文件。
+4. Dispatcher 关闭时安全取消。
+5. 探测异常不得导致程序崩溃。
+
+#### E. 主刷新监测
+
+1. 只允许在现有刷新入口和出口增加观测。
+2. 不得改变刷新内容、顺序或异常处理。
+3. 不得改变随机计划、限频、熔断或缓存。
+4. 不得额外触发行情请求。
+5. 结束状态必须在 `finally` 中完成。
+6. 网络失败本身不得直接判定 Critical。
+
+#### F. 健康状态阈值
+
+状态只允许 `Normal`、`Warning`、`Critical`。
+
+- Dispatcher：连续 2 次达到或超过 2000 ms 为 Warning；单次达到或超过 8000 ms 为 Critical。
+- 私有内存：达到或超过 1.5 GB 为 Warning；达到或超过 3 GB 为 Critical。
+- 30 分钟增长：达到或超过 512 MB 为 Warning；达到或超过 1 GB 为 Critical。
+- 线程：达到或超过 250 为 Warning；达到或超过 500 为 Critical。
+- 句柄：达到或超过 10000 为 Warning；达到或超过 20000 为 Critical。
+- 当前主刷新：超过 30 秒为 Warning；超过 90 秒为 Critical。
+
+#### G. 防抖规则
+
+1. Warning 必须连续 2 次确认。
+2. Critical 立即生效。
+3. 恢复 Normal 必须连续 3 次正常采样。
+4. 相同状态不得重复产生转换事件。
+5. 状态不得自动微信、语音、重启或结束进程。
+6. 状态不得写 TradeLog。
+
+#### H. 内存趋势
+
+1. 保存最近至少 2 小时内存样本。
+2. 缺少 30 分钟样本时不判断 30 分钟增长。
+3. 不得调用 `GC.Collect` 或 `WaitForPendingFinalizers`。
+4. 不得清理缓存、图表数据或业务对象。
+5. 不得根据单个峰值结束程序。
+
+#### I. JSONL 写入
+
+1. 必须先完整序列化，再一次追加完整行。
+2. 不得写半个 JSON。
+3. 写入失败不得使主程序退出。
+4. 成功写入新采样后才清理过期文件。
+5. 只允许删除受控健康日志。
+6. 不得删除 `reports` 目录或其它系统文件。
+7. 写入和清理失败不得影响行情和数据库。
+
+#### J. UI 边界
+
+1. 功能保留在 `ManualDataEntryWindow` 系统维护页。
+2. 不新增独立主窗口。
+3. 不修改 `ManualDataEntryWindow` 标题栏、`WindowChrome` 或白闪逻辑。
+4. 三个按钮固定为“刷新状态”“打开健康日志目录”“导出最近 24 小时报告”。
+5. 刷新状态不得触发行情刷新。
+6. UI 不得显示 Token、TradeLog 或账户金额。
+7. 不得增加强制 GC、自动重启、结束进程或清理数据库按钮。
+8. 窗口关闭时必须解除订阅。
+9. 服务不得通过静态事件强引用窗口。
+
+#### K. 报告边界
+
+1. 导出 JSON 和 TXT。
+2. 统计最近 24 小时。
+3. 包含样本、状态计数、资源最大值、Dispatcher、刷新耗时、状态转换和异常退出证据。
+4. 不包含任何敏感业务数据。
+5. 导出失败不得停止健康监测。
+
+#### L. 生命周期
+
+1. `MainWindow` 构造时创建服务。
+2. `Loaded` 后启动且只能启动一次。
+3. `Closed` 时请求停止。
+4. 停止最长等待 3 秒。
+5. `Dispose` 可重复调用。
+6. 关闭后不得继续投递 Dispatcher。
+7. 不得残留进程或前台线程。
+
+#### M. 严格不得影响
+
+- `TASK-DATA-BACKUP-RESTORE-011`。
+- TradeLog 事实源。
+- `AccountReplayService`。
+- `StrategyDecisionService`。
+- `OrderDraftService`。
+- `OrderFinalizationService`。
+- `MarketDataRefreshService`。
+- `MarketDataClient`。
+- `GlobalMarketRequestScheduler`。
+- `ChartDataRefreshCoordinator`。
+- `ChartWindowManager`。
+- `ChartWindowLifetime`。
+- K 线分页。
+- MA、B/S、viewport、十字光标。
+- 风险中心诊断逻辑。
+- PushPlus 和语音预警。
+- 全局快捷键。
+- 随机 2-4 秒刷新。
+- `TASK-RELEASE-PACKAGING-010`。
+
+#### N. Git 边界
+
+1. 根目录运行输出 `diagnostics` 保持忽略。
+2. `Infrastructure/Diagnostics` 源码必须被 Git 正常跟踪。
+3. 不得依赖 `git add -f` 提交正式源码。
+4. `.gitignore` 规则固定使用 `/diagnostics/`。
+5. `health` 目录和报告不得提交。
 
 ## 2. 后续任务解锁流程
 
