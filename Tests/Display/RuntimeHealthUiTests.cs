@@ -8,7 +8,7 @@ public sealed class RuntimeHealthUiTests
         string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
         string panel = Slice(code, "private UIElement CreateRuntimeHealthPanel()", "private void RuntimeHealthMonitor_SnapshotAvailable");
 
-        Assert.Contains("运行稳定性", panel, StringComparison.Ordinal);
+        Assert.Contains("运行健康", panel, StringComparison.Ordinal);
         Assert.Contains("当前状态", panel, StringComparison.Ordinal);
         Assert.Contains("当前工作集", panel, StringComparison.Ordinal);
         Assert.Contains("当前私有内存", panel, StringComparison.Ordinal);

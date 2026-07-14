@@ -67,7 +67,7 @@ public class ManualDataEntryStyleTests
 
         Assert.Equal(new[] { "系统维护" }, visibleTabs);
         Assert.Equal("系统维护", ManualDataEntryWindow.GetDefaultTabHeader(ManualEntryScope.SystemSettings));
-        Assert.Equal("系统设置 / 数据维护", ManualDataEntryWindow.GetWindowTitle(ManualEntryScope.SystemSettings));
+        Assert.Equal("系统设置", ManualDataEntryWindow.GetWindowTitle(ManualEntryScope.SystemSettings));
         Assert.DoesNotContain("账户状态", visibleTabs);
         Assert.DoesNotContain("持仓", visibleTabs);
         Assert.DoesNotContain("策略配置", visibleTabs);
@@ -90,7 +90,7 @@ public class ManualDataEntryStyleTests
         Assert.Contains("重复提醒间隔", code);
         Assert.Contains("严重风险间隔", code);
         Assert.Contains("行情异常间隔", code);
-        Assert.Contains("SystemMaintenanceTabRoot.Children.Add(scroll)", code);
+        Assert.Contains("SystemMaintenanceTabRoot.Children.Add(root)", code);
         Assert.Contains("VerticalScrollBarVisibility = ScrollBarVisibility.Auto", code);
         Assert.Contains("显示/隐藏窗口", code);
         Assert.Contains("请按快捷键", code);

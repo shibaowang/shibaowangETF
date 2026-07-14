@@ -10,7 +10,8 @@ public sealed class DatabaseMaintenanceUiTests
         string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
         string panel = Slice(code, "private UIElement CreateDatabaseBackupPanel()", "private async Task CreateManualDatabaseBackupAsync()");
 
-        Assert.Contains("数据库备份与恢复", panel, StringComparison.Ordinal);
+        Assert.Contains("备份记录", panel, StringComparison.Ordinal);
+        Assert.Contains("恢复数据库", panel, StringComparison.Ordinal);
         Assert.Contains("立即备份", panel, StringComparison.Ordinal);
         Assert.Contains("刷新列表", panel, StringComparison.Ordinal);
         Assert.Contains("打开备份目录", panel, StringComparison.Ordinal);
@@ -41,7 +42,7 @@ public sealed class DatabaseMaintenanceUiTests
         Assert.Contains("类型", window, StringComparison.Ordinal);
         Assert.Contains("版本", window, StringComparison.Ordinal);
         Assert.Contains("文件大小", window, StringComparison.Ordinal);
-        Assert.Contains("完整性", window, StringComparison.Ordinal);
+        Assert.Contains("状态", window, StringComparison.Ordinal);
         Assert.Contains("文件名", window, StringComparison.Ordinal);
         Assert.Contains("OrderByDescending(item => item.CreatedAt)", service, StringComparison.Ordinal);
     }
@@ -172,14 +173,14 @@ public sealed class DatabaseMaintenanceUiTests
     }
 
     [Fact]
-    public void VersionContract_IsV840WithoutChangingAssemblyName()
+    public void VersionContract_IsV850WithoutChangingAssemblyName()
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.4.0</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.4.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.4.0.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.4.0</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.5.0</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.5.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.5.0.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.5.0</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 

@@ -190,6 +190,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 `V8.4.0` 测试版在“系统维护”页增加只读运行稳定性面板：每 30 秒记录进程资源和主刷新状态，每 5 秒探测 Dispatcher 响应，健康记录保存在 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\health`，并可导出最近 24 小时 JSON/TXT 报告。该监测不写 SQLite、不触发行情或交易、不强制 GC，也不改变主界面原 2 至 4 秒随机刷新规则。详细边界见 `docs/TASK_RUNTIME_STABILITY_012.md`。
 
+`V8.5.0` 独立测试版将现有“系统设置”范围重构为固定左侧二级菜单和缓存右侧页面，统一承载数据维护、备份恢复、预警、快捷键、只读诊断摘要、运行健康及版本信息。入口仍复用 `ManualDataEntryWindow`，不新增一级模块或独立窗口，不修改备份、预警、快捷键、诊断、运行健康及交易业务服务。详细边界见 `docs/TASK_UI_SETTINGS_CENTER_017.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```

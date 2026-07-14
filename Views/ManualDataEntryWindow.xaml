@@ -281,6 +281,67 @@
 
         <Style x:Key="EntryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}" />
 
+        <Style x:Key="SettingsButtonBaseStyle" TargetType="Button">
+            <Setter Property="MinWidth" Value="104" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="Padding" Value="15,0" />
+            <Setter Property="Foreground" Value="#EAF6FF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="SettingsButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              Margin="{TemplateBinding Padding}"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SettingsButtonBorder" Property="Opacity" Value="0.90" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="SettingsButtonBorder" Property="Opacity" Value="0.76" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SettingsButtonBorder" Property="Opacity" Value="0.52" />
+                                <Setter Property="Foreground" Value="#8BA0B2" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsSecondaryButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource SettingsButtonBaseStyle}">
+            <Setter Property="Background" Value="#0B2538" />
+            <Setter Property="BorderBrush" Value="#24415B" />
+        </Style>
+
+        <Style x:Key="SettingsPrimaryButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource SettingsButtonBaseStyle}">
+            <Setter Property="Background" Value="#0E5A78" />
+            <Setter Property="BorderBrush" Value="#2A8DB6" />
+        </Style>
+
+        <Style x:Key="SettingsDangerButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource SettingsButtonBaseStyle}">
+            <Setter Property="Background" Value="#4A171C" />
+            <Setter Property="BorderBrush" Value="#A33A42" />
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Height" Value="32" />
             <Setter Property="Padding" Value="8,4" />
@@ -518,9 +579,31 @@
             <Setter Property="BorderBrush" Value="{StaticResource EntryBorderBrush}" />
         </Style>
 
-        <Style TargetType="TabControl">
+        <Style x:Key="EntryNormalTabControlStyle" TargetType="TabControl">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="{StaticResource EntryBorderBrush}" />
+        </Style>
+
+        <Style x:Key="EntryHeaderlessTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="#050B14" />
+            <Setter Property="BorderBrush" Value="#050B14" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Border Background="#050B14"
+                                BorderBrush="#050B14"
+                                BorderThickness="0">
+                            <ContentPresenter ContentSource="SelectedContent"
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Stretch" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="TabItem">
@@ -667,7 +750,9 @@
             </StackPanel>
         </Grid>
 
-        <TabControl x:Name="EntryTabs" Grid.Row="1">
+        <TabControl x:Name="EntryTabs"
+                    Grid.Row="1"
+                    Style="{StaticResource EntryNormalTabControlStyle}">
             <TabItem x:Name="StrategyTabItem" Header="策略配置">
                 <Grid x:Name="StrategyTabRoot" Background="#050B14" />
             </TabItem>

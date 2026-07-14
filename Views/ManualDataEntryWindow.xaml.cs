@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -28,7 +29,43 @@ public enum ManualEntryScope
 
 public partial class ManualDataEntryWindow : Window
 {
+    private enum SystemSettingsPage
+    {
+        General,
+        Alerts,
+        DataSecurity,
+        RuntimeDiagnostics
+    }
+
+    private enum SettingsButtonKind
+    {
+        Secondary,
+        Primary,
+        Danger
+    }
+
+    private sealed record SystemSettingsPageDefinition(
+        SystemSettingsPage Page,
+        string Icon,
+        string Title,
+        string Description);
+
+    private sealed record SystemSettingsMenuVisual(
+        Border Container,
+        Border Indicator,
+        TextBlock Icon,
+        TextBlock Title,
+        TextBlock Description);
+
     private static readonly Color ManualWindowBackgroundColor = Color.FromRgb(0x05, 0x0B, 0x14);
+
+    private static readonly SystemSettingsPageDefinition[] SystemSettingsPageDefinitions =
+    {
+        new(SystemSettingsPage.General, "\uE713", "通用设置", "快捷键、版本与程序目录"),
+        new(SystemSettingsPage.Alerts, "\uEA8F", "预警与通知", "微信通知、语音与提醒频率"),
+        new(SystemSettingsPage.DataSecurity, "\uE896", "数据安全", "数据维护、备份与恢复"),
+        new(SystemSettingsPage.RuntimeDiagnostics, "\uE9D9", "运行与诊断", "行情诊断与运行健康")
+    };
 
     private const string StrategyTabHeader = "策略配置";
     private const string AccountTabHeader = "账户状态";
@@ -69,6 +106,7 @@ public partial class ManualDataEntryWindow : Window
     private const string TradeLogColumnLayoutKey = "trade_log";
 
     private readonly LocalDataRepository _repository;
+    private readonly string _databasePath;
     private readonly DatabaseBackupService _databaseBackupService;
     private readonly RuntimeHealthMonitor? _runtimeHealthMonitor;
     private readonly ObservableCollection<StrategyConfigRecord> _strategies = new();
@@ -119,6 +157,19 @@ public partial class ManualDataEntryWindow : Window
     private TextBlock? _databaseBackupOperationText;
     private bool _databaseBackupOperationInProgress;
     private readonly Dictionary<string, TextBlock> _runtimeHealthValueTexts = new(StringComparer.Ordinal);
+    private readonly Dictionary<SystemSettingsPage, UIElement> _systemSettingsPages = new();
+    private readonly Dictionary<SystemSettingsPage, Button> _systemSettingsMenuButtons = new();
+    private readonly Dictionary<SystemSettingsPage, SystemSettingsMenuVisual> _systemSettingsMenuVisuals = new();
+    private ContentControl? _systemSettingsPageHost;
+    private SystemSettingsPage _currentSystemSettingsPage = SystemSettingsPage.General;
+    private TextBlock? _databaseSummaryStatusText;
+    private TextBlock? _databaseSummaryLatestBackupText;
+    private TextBlock? _databaseSummaryValidCountText;
+    private TextBlock? _databaseSummaryAutomaticStatusText;
+    private TextBlock? _runtimeSummaryPrivateMemoryText;
+    private TextBlock? _runtimeSummaryDispatcherText;
+    private TextBlock? _runtimeActionSampleText;
+    private TextBlock? _runtimeActionDirectoryText;
     private Button? _exportRuntimeHealthReportButton;
 
     public ManualDataEntryWindow(LocalDataRepository repository, string databasePath)
@@ -138,6 +189,7 @@ public partial class ManualDataEntryWindow : Window
         RuntimeHealthMonitor? runtimeHealthMonitor)
     {
         _repository = repository;
+        _databasePath = databasePath;
         _runtimeHealthMonitor = runtimeHealthMonitor;
         string applicationDirectory = Path.GetDirectoryName(databasePath)
             ?? throw new ArgumentException("无法解析数据库目录。", nameof(databasePath));
@@ -152,7 +204,7 @@ public partial class ManualDataEntryWindow : Window
             TryApplyDarkTitleBar();
             ApplyDarkHwndBackground();
         };
-        DatabasePathText.Text = databasePath;
+        DatabasePathText.Text = _databasePath;
         BuildTabs();
         LoadData();
         ApplyScope(scope);
@@ -175,6 +227,13 @@ public partial class ManualDataEntryWindow : Window
         string title = GetWindowTitle(scope);
         Title = title;
         WindowTitleText.Text = title;
+        DatabasePathText.Text = scope == ManualEntryScope.SystemSettings
+            ? "管理数据、备份、通知与系统运行状态"
+            : _databasePath;
+        EntryTabs.Style = (Style)FindResource(
+            scope == ManualEntryScope.SystemSettings
+                ? "EntryHeaderlessTabControlStyle"
+                : "EntryNormalTabControlStyle");
 
         HashSet<string> visibleHeaders = GetVisibleTabHeaders(scope).ToHashSet(StringComparer.Ordinal);
         foreach (TabItem tab in EntryTabs.Items.OfType<TabItem>())
@@ -211,9 +270,18 @@ public partial class ManualDataEntryWindow : Window
         {
             ManualEntryScope.PremiumDecision => "溢价决策配置",
             ManualEntryScope.TradeLog => "交易日志录入",
-            ManualEntryScope.SystemSettings => "系统设置 / 数据维护",
+            ManualEntryScope.SystemSettings => "系统设置",
             _ => "本地数据手动录入"
         };
+
+    public static IReadOnlyList<string> GetSystemSettingsPageTitles()
+        => SystemSettingsPageDefinitions.Select(definition => definition.Title).ToArray();
+
+    public static IReadOnlyList<string> GetSystemSettingsPageDescriptions()
+        => SystemSettingsPageDefinitions.Select(definition => definition.Description).ToArray();
+
+    public static string GetDefaultSystemSettingsPageTitle()
+        => SystemSettingsPageDefinitions[0].Title;
 
     private void SelectTab(string header)
     {
@@ -469,62 +537,533 @@ public partial class ManualDataEntryWindow : Window
 
     private void BuildSystemMaintenanceTab()
     {
-        var border = new Border
+        if (SystemMaintenanceTabRoot.Children.Count > 0)
+        {
+            return;
+        }
+
+        var root = new Grid
         {
             Margin = new Thickness(0, 10, 0, 0),
-            Padding = new Thickness(24),
-            Background = BrushFrom("#071827"),
-            BorderBrush = BrushFrom("#24415B"),
+            Background = BrushFrom("#050B14")
+        };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(226) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var navigationBorder = new Border
+        {
+            Background = BrushFrom("#061927"),
+            BorderBrush = BrushFrom("#1F4E68"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6)
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(10)
         };
-
-        var content = new StackPanel
+        var navigationPanel = new StackPanel();
+        foreach (SystemSettingsPageDefinition definition in SystemSettingsPageDefinitions)
         {
-            MaxWidth = 1040,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
+            navigationPanel.Children.Add(CreateSystemSettingsMenuButton(definition));
+        }
 
-        content.Children.Add(CreateMaintenanceText("系统设置 / 数据维护", 20, "#E5EEF8", FontWeights.SemiBold));
-        content.Children.Add(CreateMaintenanceText("数据库路径：", 14, "#9CAFC3", FontWeights.SemiBold, new Thickness(0, 18, 0, 0)));
-        content.Children.Add(CreateMaintenanceText(DatabasePathText.Text, 13, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
-        content.Children.Add(CreateMaintenanceText("说明：", 14, "#9CAFC3", FontWeights.SemiBold, new Thickness(0, 22, 0, 0)));
-        content.Children.Add(CreateMaintenanceText("账户状态和持仓已由 TradeLog 自动回放生成，不再手动维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
-        content.Children.Add(CreateMaintenanceText("策略配置、OTCMap、底仓基准请到“溢价决策”维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
-        content.Children.Add(CreateMaintenanceText("TradeLog 请到“交易日志”维护。", 14, "#E5EEF8", FontWeights.Normal, new Thickness(0, 6, 0, 0)));
-        content.Children.Add(CreateMaintenanceText("备份与恢复只处理已保存到本地 SQLite 的数据，不触发行情、回放、策略或委托。", 14, "#9CAFC3", FontWeights.Normal, new Thickness(0, 22, 0, 0)));
-        content.Children.Add(CreateRuntimeHealthPanel());
-        content.Children.Add(CreateDatabaseBackupPanel());
-        content.Children.Add(CreateAlertSettingsPanel());
-        content.Children.Add(CreateHotkeySettingsPanel());
-
-        border.Child = content;
-        var scroll = new ScrollViewer
+        navigationBorder.Child = new ScrollViewer
         {
+            Background = BrushFrom("#061927"),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Background = BrushFrom("#050B14"),
-            Content = border
+            Content = navigationPanel
         };
-        SystemMaintenanceTabRoot.Children.Add(scroll);
+        Grid.SetColumn(navigationBorder, 0);
+        root.Children.Add(navigationBorder);
+
+        _systemSettingsPageHost = new ContentControl
+        {
+            Background = BrushFrom("#050B14"),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch
+        };
+        Grid.SetColumn(_systemSettingsPageHost, 2);
+        root.Children.Add(_systemSettingsPageHost);
+
+        _systemSettingsPages[SystemSettingsPage.General] = CreateSystemSettingsPage(
+            "通用设置",
+            "管理界面快捷键、软件版本和本地数据目录。",
+            CreateGeneralSettingsPanel());
+        _systemSettingsPages[SystemSettingsPage.Alerts] = CreateSystemSettingsPage(
+            "预警与通知",
+            "管理微信通知、系统语音和重复提醒频率。",
+            CreateAlertSettingsPanel());
+        _systemSettingsPages[SystemSettingsPage.DataSecurity] = CreateSystemSettingsPage(
+            "数据安全",
+            "管理数据库位置、本地备份与安全恢复。",
+            CreateDataSecurityPanel());
+        _systemSettingsPages[SystemSettingsPage.RuntimeDiagnostics] = CreateSystemSettingsPage(
+            "运行与诊断",
+            "查看行情数据源、数据库状态和程序运行健康。",
+            CreateRuntimeDiagnosticsPanel());
+
+        SystemMaintenanceTabRoot.Children.Add(root);
+        SwitchSystemSettingsPage(SystemSettingsPage.General);
         RefreshAlertSettingsUi();
         RefreshHotkeySettingsUi();
         _ = RefreshDatabaseBackupListAsync();
     }
 
-    private UIElement CreateRuntimeHealthPanel()
+    private Button CreateSystemSettingsMenuButton(SystemSettingsPageDefinition definition)
     {
-        var border = new Border
+        var indicator = new Border
         {
-            Margin = new Thickness(0, 24, 0, 0),
-            Padding = new Thickness(18),
+            Width = 3,
+            Background = Brushes.Transparent,
+            CornerRadius = new CornerRadius(2),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        var icon = CreateMaintenanceText(definition.Icon, 19, "#7FA8C0", FontWeights.Normal);
+        icon.FontFamily = new FontFamily("Segoe MDL2 Assets");
+        icon.HorizontalAlignment = HorizontalAlignment.Center;
+        icon.VerticalAlignment = VerticalAlignment.Center;
+        var title = CreateMaintenanceText(definition.Title, 15, "#D8E8F3", FontWeights.SemiBold);
+        title.TextTrimming = TextTrimming.CharacterEllipsis;
+        title.TextWrapping = TextWrapping.NoWrap;
+        var description = CreateMaintenanceText(definition.Description, 12, "#7E9CAF", FontWeights.Normal, new Thickness(0, 3, 0, 0));
+        description.TextTrimming = TextTrimming.CharacterEllipsis;
+        description.TextWrapping = TextWrapping.NoWrap;
+
+        var textPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textPanel.Children.Add(title);
+        textPanel.Children.Add(description);
+
+        var content = new Grid { Background = Brushes.Transparent };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(indicator, 0);
+        Grid.SetColumn(icon, 1);
+        Grid.SetColumn(textPanel, 2);
+        content.Children.Add(indicator);
+        content.Children.Add(icon);
+        content.Children.Add(textPanel);
+
+        var container = new Border
+        {
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Margin = new Thickness(0, 0, 0, 5),
+            Padding = new Thickness(0, 8, 7, 8),
+            Child = content
+        };
+        var button = new Button
+        {
+            Height = 66,
+            MinWidth = 0,
+            Margin = new Thickness(0),
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            Content = container,
+            Tag = definition.Page
+        };
+        button.Click += (_, _) => SwitchSystemSettingsPage(definition.Page);
+        button.MouseEnter += (_, _) =>
+        {
+            if (_currentSystemSettingsPage != definition.Page)
+            {
+                container.Background = BrushFrom("#0A2133");
+            }
+        };
+        button.MouseLeave += (_, _) => UpdateSystemSettingsMenuVisual(definition.Page);
+
+        _systemSettingsMenuButtons[definition.Page] = button;
+        _systemSettingsMenuVisuals[definition.Page] = new SystemSettingsMenuVisual(container, indicator, icon, title, description);
+        return button;
+    }
+
+    private void SwitchSystemSettingsPage(SystemSettingsPage page)
+    {
+        if (_systemSettingsPageHost is null || !_systemSettingsPages.TryGetValue(page, out UIElement? content))
+        {
+            return;
+        }
+
+        _currentSystemSettingsPage = page;
+        _systemSettingsPageHost.Content = content;
+        if (content is ScrollViewer pageScrollViewer)
+        {
+            pageScrollViewer.ScrollToTop();
+        }
+
+        foreach (SystemSettingsPage menuPage in _systemSettingsMenuButtons.Keys)
+        {
+            UpdateSystemSettingsMenuVisual(menuPage);
+        }
+    }
+
+    private void UpdateSystemSettingsMenuVisual(SystemSettingsPage page)
+    {
+        if (!_systemSettingsMenuVisuals.TryGetValue(page, out SystemSettingsMenuVisual? visual))
+        {
+            return;
+        }
+
+        bool selected = _currentSystemSettingsPage == page;
+        visual.Container.Background = BrushFrom(selected ? "#0A2132" : "#061927");
+        visual.Container.BorderBrush = BrushFrom(selected ? "#173E55" : "#061927");
+        visual.Indicator.Background = selected ? FindResource("EntryAccentBrush") as Brush ?? BrushFrom("#3B82F6") : Brushes.Transparent;
+        visual.Icon.Foreground = BrushFrom(selected ? "#3B82F6" : "#7FA8C0");
+        visual.Title.Foreground = BrushFrom(selected ? "#FFFFFF" : "#D8E8F3");
+        visual.Description.Foreground = BrushFrom("#7E9CAF");
+    }
+
+    private static ScrollViewer CreateSystemSettingsPage(string title, string description, UIElement content)
+    {
+        var page = new StackPanel
+        {
+            MinWidth = 850,
+            MaxWidth = 1220,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(36, 28, 36, 28),
+            Background = BrushFrom("#050B14")
+        };
+        page.Children.Add(CreateMaintenanceText(title, 24, "#EAF6FF", FontWeights.SemiBold));
+        page.Children.Add(CreateMaintenanceText(description, 14, "#8FAABD", FontWeights.Normal, new Thickness(0, 5, 0, 20)));
+        page.Children.Add(content);
+        return new ScrollViewer
+        {
+            Background = BrushFrom("#050B14"),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            Content = page
+        };
+    }
+
+    private UIElement CreateDataMaintenancePanel()
+    {
+        var card = CreateSystemSettingsCard();
+        var content = new StackPanel();
+        content.Children.Add(CreateMaintenanceText("数据库位置与维护边界", 17, "#EAF6FF", FontWeights.SemiBold));
+        var columns = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+
+        Grid paths = CreatePathInformationGrid(
+            ("当前数据库路径", _databasePath),
+            ("数据目录", Path.GetDirectoryName(_databasePath) ?? "--"));
+        Grid.SetColumn(paths, 0);
+        columns.Children.Add(paths);
+
+        var boundary = new StackPanel();
+        string[] boundaryItems =
+        {
+            "账户状态和持仓由 TradeLog 自动回放生成。",
+            "策略配置、OTCMap 和底仓基准在“溢价决策”维护。",
+            "TradeLog 在“交易日志”维护。",
+            "备份恢复不触发行情、策略或委托。",
+            "TradeLog 是账户和持仓事实源。",
+            "系统不自动写入交易记录。"
+        };
+        for (int index = 0; index < boundaryItems.Length; index++)
+        {
+            boundary.Children.Add(CreateMaintenanceText(
+                "• " + boundaryItems[index],
+                13,
+                "#C8D8E8",
+                FontWeights.Normal,
+                new Thickness(0, index == 0 ? 0 : 6, 0, 0)));
+        }
+
+        Grid.SetColumn(boundary, 2);
+        columns.Children.Add(boundary);
+        content.Children.Add(columns);
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement CreateSystemDiagnosticsPanel(MarketDiagnosticsSnapshot snapshot)
+    {
+        var card = CreateSystemSettingsCard();
+        var content = new StackPanel();
+        content.Children.Add(CreateMaintenanceText("系统诊断", 17, "#EAF6FF", FontWeights.SemiBold));
+        content.Children.Add(CreateInformationGrid(
+            ("总体诊断状态", snapshot.Overview.OverallStatus),
+            ("行情源概要", $"正常 {snapshot.Overview.NormalSourceCount} / 异常 {snapshot.Overview.AbnormalSourceCount} / 过期 {snapshot.Overview.StaleQuoteCount}"),
+            ("本地数据库状态", snapshot.Overview.DatabaseStatus),
+            ("账户/盈亏口径概要", $"{snapshot.PnlSummary.ConsistencyStatus}，今日有效项 {snapshot.Overview.IncludedPnlItemCount}"),
+            ("最近诊断时间", snapshot.Environment.CurrentTime),
+            ("当前程序版本", snapshot.Environment.AppVersion)));
+        content.Children.Add(CreateMaintenanceText(
+            "更详细的行情、盈亏、配置和运行诊断请在风险中心查看。",
+            12,
+            "#8FAABD",
+            FontWeights.Normal,
+            new Thickness(0, 18, 0, 0)));
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement CreateGeneralSettingsPanel()
+    {
+        var root = new StackPanel();
+        root.Children.Add(CreateTwoColumnSettingsGrid(
+            CreateHotkeySettingsPanel(),
+            CreateSoftwareInformationPanel(),
+            2,
+            3));
+
+        UIElement directories = CreateLocalDataDirectoryPanel();
+        directories.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 16, 0, 0));
+        root.Children.Add(directories);
+
+        UIElement boundary = CreateSystemBoundaryPanel();
+        boundary.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 16, 0, 0));
+        root.Children.Add(boundary);
+        return root;
+    }
+
+    private UIElement CreateSoftwareInformationPanel()
+    {
+        Assembly assembly = typeof(ManualDataEntryWindow).Assembly;
+        string executablePath = Environment.ProcessPath ?? assembly.Location;
+        FileVersionInfo versionInfo = FileVersionInfo.GetVersionInfo(executablePath);
+        string informationalVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "--";
+        var card = CreateSystemSettingsCard();
+        var content = new StackPanel();
+        string buildIdentifier = string.IsNullOrWhiteSpace(versionInfo.ProductVersion)
+            ? informationalVersion
+            : versionInfo.ProductVersion;
+        content.Children.Add(CreateMaintenanceText("软件信息", 17, "#EAF6FF", FontWeights.SemiBold));
+        content.Children.Add(CreateTrimmableInformationGrid(
+            ("产品名称", "跨境ETF智能投资决策系统"),
+            ("当前版本", "V8.5.0"),
+            ("FileVersion", versionInfo.FileVersion ?? "--"),
+            ("构建标识", buildIdentifier)));
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement CreateLocalDataDirectoryPanel()
+    {
+        Assembly assembly = typeof(ManualDataEntryWindow).Assembly;
+        string executablePath = Environment.ProcessPath ?? assembly.Location;
+        string dataDirectory = Path.GetDirectoryName(_databasePath) ?? "--";
+        string healthDirectory = _runtimeHealthMonitor?.HealthDirectory ?? Path.Combine(dataDirectory, "health");
+        var card = CreateSystemSettingsCard();
+        var content = new StackPanel();
+        content.Children.Add(CreateMaintenanceText("本地数据目录", 17, "#EAF6FF", FontWeights.SemiBold));
+        content.Children.Add(CreatePathInformationGrid(
+            ("程序目录", Path.GetDirectoryName(executablePath) ?? "--"),
+            ("数据库路径", _databasePath),
+            ("数据目录", dataDirectory),
+            ("备份目录", _databaseBackupService.BackupDirectory),
+            ("恢复目录", _databaseBackupService.RestoreDirectory),
+            ("健康日志目录", healthDirectory)));
+        card.Child = content;
+        return card;
+    }
+
+    private static UIElement CreateSystemBoundaryPanel()
+        => new Border
+        {
+            Padding = new Thickness(16, 14, 16, 14),
             Background = BrushFrom("#061B2A"),
             BorderBrush = BrushFrom("#1F4E68"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6)
+            CornerRadius = new CornerRadius(8),
+            Child = CreateMaintenanceText(
+                "本系统仅提供投资分析与委托建议，不连接券商，不自动执行交易。",
+                13,
+                "#C8D8E8",
+                FontWeights.SemiBold)
         };
+
+    private UIElement CreateDataSecurityPanel()
+    {
         var root = new StackPanel();
-        root.Children.Add(CreateMaintenanceText("运行稳定性", 17, "#E5EEF8", FontWeights.SemiBold));
+        Grid summaries = CreateSettingsSummaryGrid(
+            CreateSettingsSummaryCard("数据库状态", "本地数据库", out _databaseSummaryStatusText),
+            CreateSettingsSummaryCard("最近有效备份", "--", out _databaseSummaryLatestBackupText),
+            CreateSettingsSummaryCard("有效备份数量", "--", out _databaseSummaryValidCountText),
+            CreateSettingsSummaryCard("自动备份状态", "等待读取", out _databaseSummaryAutomaticStatusText));
+        _databaseSummaryStatusText.Foreground = BrushFrom("#84CC16");
+        root.Children.Add(summaries);
+
+        UIElement backup = CreateDatabaseBackupPanel();
+        backup.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 16, 0, 0));
+        root.Children.Add(backup);
+
+        UIElement maintenance = CreateDataMaintenancePanel();
+        maintenance.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 16, 0, 0));
+        root.Children.Add(maintenance);
+
+        UIElement restore = CreateDatabaseRestorePanel();
+        restore.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 16, 0, 0));
+        root.Children.Add(restore);
+        UpdateDatabaseBackupButtonState();
+        return root;
+    }
+
+    private UIElement CreateRuntimeDiagnosticsPanel()
+    {
+        MarketDiagnosticsSnapshot snapshot = new MarketDiagnosticsSnapshotService(_repository).BuildSnapshot();
+        RuntimeHealthSnapshot? runtimeSnapshot = _runtimeHealthMonitor?.CurrentSnapshot;
+        var root = new StackPanel();
+        Grid summaries = CreateSettingsSummaryGrid(
+            CreateSettingsSummaryCard("综合状态", snapshot.Overview.OverallStatus, out TextBlock overallStatusText),
+            CreateSettingsSummaryCard(
+                "行情概要",
+                $"正常 {snapshot.Overview.NormalSourceCount} / 异常 {snapshot.Overview.AbnormalSourceCount} / 过期 {snapshot.Overview.StaleQuoteCount}",
+                out _),
+            CreateSettingsSummaryCard(
+                "私有内存",
+                runtimeSnapshot is null ? (_runtimeHealthMonitor is null ? "--" : "等待采样") : FormatRuntimeBytes(runtimeSnapshot.PrivateMemoryBytes),
+                out _runtimeSummaryPrivateMemoryText),
+            CreateSettingsSummaryCard(
+                "界面延迟",
+                runtimeSnapshot is null ? (_runtimeHealthMonitor is null ? "--" : "等待采样") : $"{runtimeSnapshot.DispatcherLagMilliseconds:F0} ms",
+                out _runtimeSummaryDispatcherText));
+        overallStatusText.Foreground = BrushFrom(snapshot.Overview.OverallStatus switch
+        {
+            "正常" => "#84CC16",
+            "警告" => "#F59E0B",
+            "异常" => "#EF4444",
+            _ => "#EAF6FF"
+        });
+        root.Children.Add(summaries);
+
+        Grid details = CreateTwoColumnSettingsGrid(
+            CreateSystemDiagnosticsPanel(snapshot),
+            CreateRuntimeHealthPanel());
+        details.Margin = new Thickness(0, 16, 0, 0);
+        root.Children.Add(details);
+
+        UIElement actions = CreateRuntimeHealthActionsPanel();
+        actions.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 16, 0, 0));
+        root.Children.Add(actions);
+        return root;
+    }
+
+    private static Border CreateSystemSettingsCard()
+        => new()
+        {
+            Padding = new Thickness(20),
+            Background = BrushFrom("#061B2A"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8)
+        };
+
+    private static Grid CreateTwoColumnSettingsGrid(UIElement left, UIElement right, double leftWeight = 1, double rightWeight = 1)
+    {
+        var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(leftWeight, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(rightWeight, GridUnitType.Star) });
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(right, 2);
+        grid.Children.Add(left);
+        grid.Children.Add(right);
+        return grid;
+    }
+
+    private static Grid CreateSettingsSummaryGrid(params UIElement[] cards)
+    {
+        var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+        for (int index = 0; index < cards.Length; index++)
+        {
+            int column = index * 2;
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(cards[index], column);
+            grid.Children.Add(cards[index]);
+            if (index < cards.Length - 1)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            }
+        }
+
+        return grid;
+    }
+
+    private static Border CreateSettingsSummaryCard(string title, string value, out TextBlock valueText)
+    {
+        var content = new StackPanel();
+        content.Children.Add(CreateMaintenanceText(title, 13, "#8FAABD", FontWeights.SemiBold));
+        valueText = CreateMaintenanceText(value, 19, "#EAF6FF", FontWeights.SemiBold, new Thickness(0, 9, 0, 0));
+        valueText.TextWrapping = TextWrapping.Wrap;
+        content.Children.Add(valueText);
+        return new Border
+        {
+            MinHeight = 94,
+            Padding = new Thickness(20),
+            Background = BrushFrom("#061B2A"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Child = content
+        };
+    }
+
+    private static Grid CreateInformationGrid(params (string Label, string Value)[] rows)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int row = 0; row < rows.Length; row++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(28) });
+            TextBlock label = CreateMaintenanceText(rows[row].Label, 13, "#8FAABD", FontWeights.SemiBold, new Thickness(0, 0, 16, 0));
+            TextBlock value = CreateMaintenanceText(rows[row].Value, 13, "#EAF6FF", FontWeights.Normal);
+            label.VerticalAlignment = VerticalAlignment.Center;
+            value.VerticalAlignment = VerticalAlignment.Center;
+            value.TextWrapping = TextWrapping.Wrap;
+            Grid.SetRow(label, row);
+            Grid.SetColumn(label, 0);
+            Grid.SetRow(value, row);
+            Grid.SetColumn(value, 1);
+            grid.Children.Add(label);
+            grid.Children.Add(value);
+        }
+
+        return grid;
+    }
+
+    private static Grid CreatePathInformationGrid(params (string Label, string Value)[] rows)
+    {
+        Grid grid = CreateInformationGrid(rows);
+        foreach (TextBlock value in grid.Children.OfType<TextBlock>().Where(text => Grid.GetColumn(text) == 1))
+        {
+            value.FontFamily = new FontFamily("Consolas, Microsoft YaHei UI");
+            value.TextWrapping = TextWrapping.NoWrap;
+            value.TextTrimming = TextTrimming.CharacterEllipsis;
+            value.ToolTip = value.Text;
+        }
+
+        return grid;
+    }
+
+    private static Grid CreateTrimmableInformationGrid(params (string Label, string Value)[] rows)
+    {
+        Grid grid = CreateInformationGrid(rows);
+        foreach (TextBlock value in grid.Children.OfType<TextBlock>().Where(text => Grid.GetColumn(text) == 1))
+        {
+            value.TextWrapping = TextWrapping.NoWrap;
+            value.TextTrimming = TextTrimming.CharacterEllipsis;
+            value.ToolTip = value.Text;
+        }
+
+        return grid;
+    }
+
+    private UIElement CreateRuntimeHealthPanel()
+    {
+        Border border = CreateSystemSettingsCard();
+        var root = new StackPanel();
+        root.Children.Add(CreateMaintenanceText("运行健康", 17, "#E5EEF8", FontWeights.SemiBold));
         root.Children.Add(CreateMaintenanceText(
             "轻量只读监测：每 30 秒记录进程资源，每 5 秒探测一次 UI 响应；不触发行情、回放、策略或数据库写入。",
             12,
@@ -533,7 +1072,9 @@ public partial class ManualDataEntryWindow : Window
             new Thickness(0, 7, 0, 0)));
 
         var metrics = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
         metrics.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         string[] fields =
         {
@@ -555,42 +1096,95 @@ public partial class ManualDataEntryWindow : Window
             "最近状态原因"
         };
         _runtimeHealthValueTexts.Clear();
-        for (int row = 0; row < fields.Length; row++)
+        for (int row = 0; row < 9; row++)
         {
-            metrics.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            metrics.RowDefinitions.Add(new RowDefinition { Height = new GridLength(28) });
+        }
+
+        for (int index = 0; index < fields.Length; index++)
+        {
+            bool fullWidth = index >= 14;
+            int row = fullWidth ? 7 + (index - 14) : index / 2;
+            int labelColumn = fullWidth ? 0 : (index % 2) * 2;
+            int valueColumn = fullWidth ? 1 : labelColumn + 1;
             TextBlock label = CreateMaintenanceText(
-                fields[row],
+                fields[index],
                 12,
                 "#9CAFC3",
                 FontWeights.SemiBold,
-                new Thickness(0, row == 0 ? 0 : 7, 14, 0));
+                new Thickness(labelColumn == 0 ? 0 : 16, row == 0 ? 0 : 8, 12, 0));
             TextBlock value = CreateMaintenanceText(
                 "--",
                 12,
                 "#E5EEF8",
                 FontWeights.Normal,
-                new Thickness(0, row == 0 ? 0 : 7, 0, 0));
-            value.TextWrapping = TextWrapping.Wrap;
+                new Thickness(0, row == 0 ? 0 : 8, 0, 0));
+            value.TextWrapping = fields[index] == "健康日志目录" ? TextWrapping.NoWrap : TextWrapping.Wrap;
+            if (fields[index] == "健康日志目录")
+            {
+                value.TextTrimming = TextTrimming.CharacterEllipsis;
+                value.ToolTip = value.Text;
+            }
             Grid.SetRow(label, row);
-            Grid.SetColumn(label, 0);
+            Grid.SetColumn(label, labelColumn);
             Grid.SetRow(value, row);
-            Grid.SetColumn(value, 1);
+            Grid.SetColumn(value, valueColumn);
+            if (fullWidth)
+            {
+                Grid.SetColumnSpan(value, 3);
+            }
+
             metrics.Children.Add(label);
             metrics.Children.Add(value);
-            _runtimeHealthValueTexts[fields[row]] = value;
+            _runtimeHealthValueTexts[fields[index]] = value;
         }
 
         root.Children.Add(metrics);
+        border.Child = root;
+        return border;
+    }
+
+    private UIElement CreateRuntimeHealthActionsPanel()
+    {
+        Border border = CreateSystemSettingsCard();
+        var root = new StackPanel();
+        root.Children.Add(CreateMaintenanceText("日志与报告", 17, "#E5EEF8", FontWeights.SemiBold));
+        var statusGrid = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        statusGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
+        statusGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        statusGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        statusGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        TextBlock sampleLabel = CreateMaintenanceText("最近采样时间", 12, "#9CAFC3", FontWeights.SemiBold);
+        _runtimeActionSampleText = CreateMaintenanceText("--", 12, "#E5EEF8", FontWeights.Normal);
+        TextBlock directoryLabel = CreateMaintenanceText("健康日志目录", 12, "#9CAFC3", FontWeights.SemiBold, new Thickness(0, 8, 0, 0));
+        _runtimeActionDirectoryText = CreateMaintenanceText(_runtimeHealthMonitor?.HealthDirectory ?? "--", 12, "#E5EEF8", FontWeights.Normal, new Thickness(0, 8, 0, 0));
+        _runtimeActionDirectoryText.TextWrapping = TextWrapping.NoWrap;
+        _runtimeActionDirectoryText.TextTrimming = TextTrimming.CharacterEllipsis;
+        _runtimeActionDirectoryText.ToolTip = _runtimeActionDirectoryText.Text;
+        Grid.SetRow(sampleLabel, 0);
+        Grid.SetColumn(sampleLabel, 0);
+        Grid.SetRow(_runtimeActionSampleText, 0);
+        Grid.SetColumn(_runtimeActionSampleText, 1);
+        Grid.SetRow(directoryLabel, 1);
+        Grid.SetColumn(directoryLabel, 0);
+        Grid.SetRow(_runtimeActionDirectoryText, 1);
+        Grid.SetColumn(_runtimeActionDirectoryText, 1);
+        statusGrid.Children.Add(sampleLabel);
+        statusGrid.Children.Add(_runtimeActionSampleText);
+        statusGrid.Children.Add(directoryLabel);
+        statusGrid.Children.Add(_runtimeActionDirectoryText);
+        root.Children.Add(statusGrid);
+
         var toolbar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 16, 0, 0)
         };
-        Button refreshButton = CreateButton("刷新状态");
+        Button refreshButton = CreateSettingsButton("刷新状态");
         refreshButton.Click += (_, _) => RefreshRuntimeHealthPanel();
-        Button openDirectoryButton = CreateButton("打开健康日志目录");
+        Button openDirectoryButton = CreateSettingsButton("打开健康日志目录");
         openDirectoryButton.Click += (_, _) => OpenRuntimeHealthDirectory();
-        _exportRuntimeHealthReportButton = CreateButton("导出最近24小时报告");
+        _exportRuntimeHealthReportButton = CreateSettingsButton("导出最近24小时报告");
         _exportRuntimeHealthReportButton.Click += async (_, _) => await ExportRuntimeHealthReportAsync();
         toolbar.Children.Add(refreshButton);
         toolbar.Children.Add(openDirectoryButton);
@@ -631,8 +1225,30 @@ public partial class ManualDataEntryWindow : Window
         RuntimeHealthSnapshot? snapshot = _runtimeHealthMonitor?.CurrentSnapshot;
         if (snapshot is null)
         {
+            string waitingText = _runtimeHealthMonitor is null ? "--" : "等待采样";
             SetRuntimeHealthValue("当前状态", _runtimeHealthMonitor is null ? "监测服务未连接" : "等待首次采样", "#F59E0B");
             SetRuntimeHealthValue("健康日志目录", _runtimeHealthMonitor?.HealthDirectory ?? "--");
+            if (_runtimeSummaryPrivateMemoryText is not null)
+            {
+                _runtimeSummaryPrivateMemoryText.Text = waitingText;
+            }
+
+            if (_runtimeSummaryDispatcherText is not null)
+            {
+                _runtimeSummaryDispatcherText.Text = waitingText;
+            }
+
+            if (_runtimeActionSampleText is not null)
+            {
+                _runtimeActionSampleText.Text = waitingText;
+            }
+
+            if (_runtimeActionDirectoryText is not null)
+            {
+                _runtimeActionDirectoryText.Text = _runtimeHealthMonitor?.HealthDirectory ?? "--";
+                _runtimeActionDirectoryText.ToolTip = _runtimeActionDirectoryText.Text;
+            }
+
             return;
         }
 
@@ -687,6 +1303,26 @@ public partial class ManualDataEntryWindow : Window
         SetRuntimeHealthValue(
             "最近状态原因",
             snapshot.HealthReasons.Length == 0 ? "无" : string.Join("；", snapshot.HealthReasons));
+        if (_runtimeSummaryPrivateMemoryText is not null)
+        {
+            _runtimeSummaryPrivateMemoryText.Text = FormatRuntimeBytes(snapshot.PrivateMemoryBytes);
+        }
+
+        if (_runtimeSummaryDispatcherText is not null)
+        {
+            _runtimeSummaryDispatcherText.Text = $"{snapshot.DispatcherLagMilliseconds:F0} ms";
+        }
+
+        if (_runtimeActionSampleText is not null)
+        {
+            _runtimeActionSampleText.Text = snapshot.Timestamp.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+
+        if (_runtimeActionDirectoryText is not null)
+        {
+            _runtimeActionDirectoryText.Text = _runtimeHealthMonitor?.HealthDirectory ?? "--";
+            _runtimeActionDirectoryText.ToolTip = _runtimeActionDirectoryText.Text;
+        }
     }
 
     private void SetRuntimeHealthValue(string field, string value, string color = "#E5EEF8")
@@ -695,6 +1331,10 @@ public partial class ManualDataEntryWindow : Window
         {
             text.Text = value;
             text.Foreground = BrushFrom(color);
+            if (field == "健康日志目录")
+            {
+                text.ToolTip = value;
+            }
         }
     }
 
@@ -764,30 +1404,48 @@ public partial class ManualDataEntryWindow : Window
 
     private UIElement CreateDatabaseBackupPanel()
     {
-        var border = new Border
-        {
-            Margin = new Thickness(0, 24, 0, 0),
-            Padding = new Thickness(18),
-            Background = BrushFrom("#061B2A"),
-            BorderBrush = BrushFrom("#1F4E68"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6)
-        };
         var root = new StackPanel();
-        root.Children.Add(CreateMaintenanceText("数据库备份与恢复", 17, "#E5EEF8", FontWeights.SemiBold));
-        root.Children.Add(CreateMaintenanceText(
+
+        Border recordsCard = CreateSystemSettingsCard();
+        var records = new StackPanel();
+        var recordsHeader = new Grid();
+        recordsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        recordsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        TextBlock recordsTitle = CreateMaintenanceText("备份记录", 17, "#E5EEF8", FontWeights.SemiBold);
+        Grid.SetColumn(recordsTitle, 0);
+        recordsHeader.Children.Add(recordsTitle);
+
+        var toolbar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        _createDatabaseBackupButton = CreateSettingsButton("立即备份", SettingsButtonKind.Primary);
+        _createDatabaseBackupButton.Click += async (_, _) => await CreateManualDatabaseBackupAsync();
+        _refreshDatabaseBackupListButton = CreateSettingsButton("刷新列表");
+        _refreshDatabaseBackupListButton.Click += async (_, _) => await RefreshDatabaseBackupListAsync();
+        _openDatabaseBackupDirectoryButton = CreateSettingsButton("打开备份目录");
+        _openDatabaseBackupDirectoryButton.Click += (_, _) => OpenDatabaseBackupDirectory();
+        toolbar.Children.Add(_createDatabaseBackupButton);
+        toolbar.Children.Add(_refreshDatabaseBackupListButton);
+        toolbar.Children.Add(_openDatabaseBackupDirectoryButton);
+        Grid.SetColumn(toolbar, 1);
+        recordsHeader.Children.Add(toolbar);
+        records.Children.Add(recordsHeader);
+
+        records.Children.Add(CreateMaintenanceText(
             "备份仅包含已经保存到数据库的数据；界面中尚未保存的编辑内容不会进入备份。",
             13,
             "#F59E0B",
             FontWeights.Normal,
             new Thickness(0, 8, 0, 0)));
-        root.Children.Add(CreateMaintenanceText(
+        records.Children.Add(CreateMaintenanceText(
             "当前数据库：" + _databaseBackupService.DatabasePath,
             12,
             "#9CAFC3",
             FontWeights.Normal,
             new Thickness(0, 12, 0, 0)));
-        root.Children.Add(CreateMaintenanceText(
+        records.Children.Add(CreateMaintenanceText(
             "备份目录：" + _databaseBackupService.BackupDirectory,
             12,
             "#9CAFC3",
@@ -800,29 +1458,10 @@ public partial class ManualDataEntryWindow : Window
             "#C8D8E8",
             FontWeights.Normal,
             new Thickness(0, 10, 0, 0));
-        root.Children.Add(_databaseBackupSummaryText);
-
-        var toolbar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 14, 0, 0)
-        };
-        _createDatabaseBackupButton = CreateButton("立即备份");
-        _createDatabaseBackupButton.Click += async (_, _) => await CreateManualDatabaseBackupAsync();
-        _refreshDatabaseBackupListButton = CreateButton("刷新列表");
-        _refreshDatabaseBackupListButton.Click += async (_, _) => await RefreshDatabaseBackupListAsync();
-        _openDatabaseBackupDirectoryButton = CreateButton("打开备份目录");
-        _openDatabaseBackupDirectoryButton.Click += (_, _) => OpenDatabaseBackupDirectory();
-        _restoreDatabaseBackupButton = CreateButton("恢复选中备份");
-        _restoreDatabaseBackupButton.Click += async (_, _) => await ConfirmAndStageDatabaseRestoreAsync();
-        toolbar.Children.Add(_createDatabaseBackupButton);
-        toolbar.Children.Add(_refreshDatabaseBackupListButton);
-        toolbar.Children.Add(_openDatabaseBackupDirectoryButton);
-        toolbar.Children.Add(_restoreDatabaseBackupButton);
-        root.Children.Add(toolbar);
+        records.Children.Add(_databaseBackupSummaryText);
 
         _databaseBackupGrid = CreateDataGrid(_databaseBackups);
-        _databaseBackupGrid.Height = 250;
+        _databaseBackupGrid.Height = 280;
         _databaseBackupGrid.Margin = new Thickness(0, 12, 0, 0);
         _databaseBackupGrid.IsReadOnly = true;
         _databaseBackupGrid.SelectionMode = DataGridSelectionMode.Single;
@@ -830,13 +1469,26 @@ public partial class ManualDataEntryWindow : Window
         _databaseBackupGrid.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
         _databaseBackupGrid.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _databaseBackupGrid.SelectionChanged += (_, _) => UpdateDatabaseBackupButtonState();
-        AddTextColumn(_databaseBackupGrid, "备份时间", nameof(DatabaseBackupValidationResult.CreatedAtText), 160, true);
-        AddTextColumn(_databaseBackupGrid, "类型", nameof(DatabaseBackupValidationResult.BackupKindText), 90, true);
+        AddTextColumn(_databaseBackupGrid, "备份时间", nameof(DatabaseBackupValidationResult.CreatedAtText), 170, true);
+        AddTextColumn(_databaseBackupGrid, "类型", nameof(DatabaseBackupValidationResult.BackupKindText), 100, true);
         AddTextColumn(_databaseBackupGrid, "版本", nameof(DatabaseBackupValidationResult.Version), 90, true);
-        AddTextColumn(_databaseBackupGrid, "文件大小", nameof(DatabaseBackupValidationResult.FileSizeText), 90, true);
-        AddTextColumn(_databaseBackupGrid, "完整性", nameof(DatabaseBackupValidationResult.IntegrityText), 80, true);
-        AddTextColumn(_databaseBackupGrid, "文件名", nameof(DatabaseBackupValidationResult.FileName), 390, true);
-        root.Children.Add(_databaseBackupGrid);
+        AddTextColumn(_databaseBackupGrid, "文件大小", nameof(DatabaseBackupValidationResult.FileSizeText), 100, true);
+        AddTextColumn(_databaseBackupGrid, "状态", nameof(DatabaseBackupValidationResult.IntegrityText), 90, true);
+        AddTextColumn(_databaseBackupGrid, "文件名", nameof(DatabaseBackupValidationResult.FileName), 220, true);
+        var statusStyle = new Style(typeof(TextBlock), (Style)FindResource("EntryDataGridTextBlockStyle"));
+        statusStyle.Triggers.Add(new DataTrigger
+        {
+            Binding = new Binding(nameof(DatabaseBackupValidationResult.IsValid)),
+            Value = true,
+            Setters = { new Setter(TextBlock.ForegroundProperty, BrushFrom("#84CC16")) }
+        });
+        ((DataGridTextColumn)_databaseBackupGrid.Columns[4]).ElementStyle = statusStyle;
+        var fileNameStyle = new Style(typeof(TextBlock), (Style)FindResource("EntryDataGridTextBlockStyle"));
+        fileNameStyle.Setters.Add(new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis));
+        fileNameStyle.Setters.Add(new Setter(ToolTipService.ToolTipProperty, new Binding(nameof(DatabaseBackupValidationResult.FileName))));
+        ((DataGridTextColumn)_databaseBackupGrid.Columns[5]).ElementStyle = fileNameStyle;
+        _databaseBackupGrid.Columns[5].Width = new DataGridLength(1, DataGridLengthUnitType.Star);
+        records.Children.Add(_databaseBackupGrid);
 
         _databaseBackupOperationText = CreateMaintenanceText(
             "操作状态：就绪",
@@ -844,10 +1496,37 @@ public partial class ManualDataEntryWindow : Window
             "#9CAFC3",
             FontWeights.Normal,
             new Thickness(0, 10, 0, 0));
-        root.Children.Add(_databaseBackupOperationText);
-        border.Child = root;
-        UpdateDatabaseBackupButtonState();
-        return border;
+        records.Children.Add(_databaseBackupOperationText);
+        recordsCard.Child = records;
+        root.Children.Add(recordsCard);
+        return root;
+    }
+
+    private UIElement CreateDatabaseRestorePanel()
+    {
+        var restoreDangerArea = new Border
+        {
+            Padding = new Thickness(20, 16, 20, 16),
+            Background = BrushFrom("#111820"),
+            BorderBrush = BrushFrom("#7F1D1D"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8)
+        };
+        var restoreContent = new StackPanel();
+        restoreContent.Children.Add(CreateMaintenanceText("恢复数据库", 17, "#FCA5A5", FontWeights.SemiBold));
+        restoreContent.Children.Add(CreateMaintenanceText(
+            "恢复任务会在下次启动前替换当前数据库，并在替换前创建安全备份。此操作继续使用原有双重确认流程。",
+            13,
+            "#D6A4A4",
+            FontWeights.Normal,
+            new Thickness(0, 7, 0, 0)));
+        _restoreDatabaseBackupButton = CreateSettingsButton("恢复选中备份", SettingsButtonKind.Danger);
+        _restoreDatabaseBackupButton.Click += async (_, _) => await ConfirmAndStageDatabaseRestoreAsync();
+        _restoreDatabaseBackupButton.Margin = new Thickness(0, 12, 0, 0);
+        _restoreDatabaseBackupButton.HorizontalAlignment = HorizontalAlignment.Right;
+        restoreContent.Children.Add(_restoreDatabaseBackupButton);
+        restoreDangerArea.Child = restoreContent;
+        return restoreDangerArea;
     }
 
     private async Task CreateManualDatabaseBackupAsync()
@@ -929,6 +1608,25 @@ public partial class ManualDataEntryWindow : Window
             string latest = summary.LatestValidBackupAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "--";
             _databaseBackupSummaryText.Text =
                 $"最近有效备份：{latest}    有效备份数量：{summary.ValidBackupCount}    自动备份状态：{summary.AutomaticBackupStatus}";
+            if (_databaseSummaryLatestBackupText is not null)
+            {
+                _databaseSummaryLatestBackupText.Text = latest;
+            }
+
+            if (_databaseSummaryValidCountText is not null)
+            {
+                _databaseSummaryValidCountText.Text = summary.ValidBackupCount.ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (_databaseSummaryAutomaticStatusText is not null)
+            {
+                _databaseSummaryAutomaticStatusText.Text = summary.AutomaticBackupStatus;
+            }
+
+            if (_databaseSummaryStatusText is not null)
+            {
+                _databaseSummaryStatusText.Text = "本地数据库";
+            }
         }
 
         UpdateDatabaseBackupButtonState();
@@ -1088,55 +1786,117 @@ public partial class ManualDataEntryWindow : Window
 
     private UIElement CreateAlertSettingsPanel()
     {
-        var border = new Border
-        {
-            Margin = new Thickness(0, 24, 0, 0),
-            Padding = new Thickness(18),
-            Background = BrushFrom("#061B2A"),
-            BorderBrush = BrushFrom("#1F4E68"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6)
-        };
+        var root = new StackPanel();
 
-        var panel = new StackPanel();
-        panel.Children.Add(CreateMaintenanceText("预警设置", 17, "#E5EEF8", FontWeights.SemiBold));
+        Border wechatCard = CreateSystemSettingsCard();
+        wechatCard.MinHeight = 210;
+        var wechatPanel = new StackPanel();
+        wechatPanel.Children.Add(CreateMaintenanceText("微信通知", 17, "#E5EEF8", FontWeights.SemiBold));
 
         _alertPushPlusEnabledBox = CreateAlertCheckBox("启用微信预警");
         _alertPushPlusEnabledBox.Margin = new Thickness(0, 14, 0, 0);
-        panel.Children.Add(_alertPushPlusEnabledBox);
+        wechatPanel.Children.Add(_alertPushPlusEnabledBox);
 
         var tokenRow = CreateAlertSettingRow("PushPlus Token", out PasswordBox tokenBox);
         _alertPushPlusTokenBox = tokenBox;
-        panel.Children.Add(tokenRow);
+        wechatPanel.Children.Add(tokenRow);
 
-        var wechatButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(150, 10, 0, 0) };
-        Button saveButton = CreateButton("保存预警设置");
-        saveButton.Click += (_, _) => SaveAlertSettingsFromUi();
-        Button testWechatButton = CreateButton("测试微信");
+        Button testWechatButton = CreateSettingsButton("测试微信");
+        testWechatButton.Width = 112;
+        testWechatButton.Margin = new Thickness(0, 14, 0, 0);
+        testWechatButton.HorizontalAlignment = HorizontalAlignment.Right;
         testWechatButton.Click += async (_, _) => await TestWechatAsync();
-        wechatButtons.Children.Add(saveButton);
-        wechatButtons.Children.Add(testWechatButton);
-        panel.Children.Add(wechatButtons);
+        wechatPanel.Children.Add(testWechatButton);
+        wechatCard.Child = wechatPanel;
 
+        Border voiceCard = CreateSystemSettingsCard();
+        voiceCard.MinHeight = 210;
+        var voicePanel = new StackPanel();
+        voicePanel.Children.Add(CreateMaintenanceText("系统语音", 17, "#E5EEF8", FontWeights.SemiBold));
         _alertVoiceEnabledBox = CreateAlertCheckBox("启用系统语音");
-        _alertVoiceEnabledBox.Margin = new Thickness(0, 18, 0, 0);
-        panel.Children.Add(_alertVoiceEnabledBox);
+        _alertVoiceEnabledBox.Margin = new Thickness(0, 14, 0, 0);
+        voicePanel.Children.Add(_alertVoiceEnabledBox);
 
-        var voiceButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(150, 10, 0, 0) };
-        Button testVoiceButton = CreateButton("测试语音");
+        Button testVoiceButton = CreateSettingsButton("测试语音");
+        testVoiceButton.Width = 112;
+        testVoiceButton.Margin = new Thickness(0, 14, 0, 0);
+        testVoiceButton.HorizontalAlignment = HorizontalAlignment.Right;
         testVoiceButton.Click += async (_, _) => await TestVoiceAsync();
-        voiceButtons.Children.Add(testVoiceButton);
-        panel.Children.Add(voiceButtons);
+        voicePanel.Children.Add(testVoiceButton);
+        voiceCard.Child = voicePanel;
+        root.Children.Add(CreateTwoColumnSettingsGrid(wechatCard, voiceCard));
 
-        panel.Children.Add(CreateIntervalRow("重复提醒间隔", "分钟", out _alertRepeatIntervalBox));
-        panel.Children.Add(CreateIntervalRow("严重风险间隔", "分钟", out _alertSevereIntervalBox));
-        panel.Children.Add(CreateIntervalRow("行情异常间隔", "分钟", out _alertMarketIntervalBox));
+        Border intervalCard = CreateSystemSettingsCard();
+        intervalCard.Margin = new Thickness(0, 16, 0, 0);
+        var intervalPanel = new StackPanel();
+        intervalPanel.Children.Add(CreateMaintenanceText("提醒频率", 17, "#E5EEF8", FontWeights.SemiBold));
+        var intervalGrid = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        intervalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        intervalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        intervalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        intervalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        intervalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid repeatColumn = CreateAlertIntervalColumn("重复提醒间隔", out _alertRepeatIntervalBox);
+        Grid severeColumn = CreateAlertIntervalColumn("严重风险间隔", out _alertSevereIntervalBox);
+        Grid marketColumn = CreateAlertIntervalColumn("行情异常间隔", out _alertMarketIntervalBox);
+        Grid.SetColumn(repeatColumn, 0);
+        Grid.SetColumn(severeColumn, 2);
+        Grid.SetColumn(marketColumn, 4);
+        intervalGrid.Children.Add(repeatColumn);
+        intervalGrid.Children.Add(severeColumn);
+        intervalGrid.Children.Add(marketColumn);
+        intervalPanel.Children.Add(intervalGrid);
+        intervalCard.Child = intervalPanel;
+        root.Children.Add(intervalCard);
 
-        _alertStatusText = CreateMaintenanceText(string.Empty, 12, "#9CAFC3", FontWeights.Normal, new Thickness(150, 8, 0, 0));
-        panel.Children.Add(_alertStatusText);
+        var saveRow = new Grid { Margin = new Thickness(0, 16, 0, 0) };
+        saveRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        saveRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var statusPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        statusPanel.Children.Add(CreateMaintenanceText("设置修改后需要保存才能生效。", 13, "#8FAABD", FontWeights.Normal));
+        _alertStatusText = CreateMaintenanceText(string.Empty, 12, "#9CAFC3", FontWeights.Normal, new Thickness(0, 3, 0, 0));
+        _alertStatusText.VerticalAlignment = VerticalAlignment.Center;
+        statusPanel.Children.Add(_alertStatusText);
+        Grid.SetColumn(statusPanel, 0);
+        saveRow.Children.Add(statusPanel);
+        Button saveButton = CreateSettingsButton("保存预警设置", SettingsButtonKind.Primary);
+        saveButton.Margin = new Thickness(0);
+        saveButton.HorizontalAlignment = HorizontalAlignment.Right;
+        saveButton.Click += (_, _) => SaveAlertSettingsFromUi();
+        Grid.SetColumn(saveButton, 1);
+        saveRow.Children.Add(saveButton);
+        root.Children.Add(saveRow);
 
-        border.Child = panel;
-        return border;
+        return root;
+    }
+
+    private static Grid CreateAlertIntervalColumn(string label, out TextBox textBox)
+    {
+        var column = new Grid();
+        column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        TextBlock labelBlock = CreateMaintenanceText(label, 13, "#9CAFC3", FontWeights.SemiBold);
+        Grid.SetRow(labelBlock, 0);
+        column.Children.Add(labelBlock);
+        var valueRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        textBox = new TextBox
+        {
+            Width = 92,
+            Height = 30,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Right
+        };
+        valueRow.Children.Add(textBox);
+        TextBlock unitBlock = CreateMaintenanceText("分钟", 12, "#9CAFC3", FontWeights.Normal, new Thickness(7, 0, 0, 0));
+        unitBlock.VerticalAlignment = VerticalAlignment.Center;
+        valueRow.Children.Add(unitBlock);
+        Grid.SetRow(valueRow, 1);
+        column.Children.Add(valueRow);
+        return column;
     }
 
     private static CheckBox CreateAlertCheckBox(string text)
@@ -1382,19 +2142,19 @@ public partial class ManualDataEntryWindow : Window
     {
         var border = new Border
         {
-            Margin = new Thickness(0, 24, 0, 0),
-            Padding = new Thickness(18),
+            Margin = new Thickness(0),
+            Padding = new Thickness(20),
             Background = BrushFrom("#061B2A"),
             BorderBrush = BrushFrom("#1F4E68"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6)
+            CornerRadius = new CornerRadius(8)
         };
 
         var panel = new StackPanel();
         panel.Children.Add(CreateMaintenanceText("界面快捷键", 17, "#E5EEF8", FontWeights.SemiBold));
 
-        var row = new Grid { Margin = new Thickness(0, 16, 0, 0), MaxWidth = 460 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        var row = new Grid { Margin = new Thickness(0, 16, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1416,11 +2176,12 @@ public partial class ManualDataEntryWindow : Window
 
         panel.Children.Add(row);
 
-        _hotkeyStatusText = CreateMaintenanceText(string.Empty, 12, "#9CAFC3", FontWeights.Normal, new Thickness(160, 6, 0, 0));
+        _hotkeyStatusText = CreateMaintenanceText(string.Empty, 12, "#9CAFC3", FontWeights.Normal, new Thickness(0, 6, 0, 0));
         panel.Children.Add(_hotkeyStatusText);
 
-        Button restoreButton = CreateButton("恢复默认设置");
+        Button restoreButton = CreateSettingsButton("恢复默认设置");
         restoreButton.Margin = new Thickness(0, 14, 0, 0);
+        restoreButton.HorizontalAlignment = HorizontalAlignment.Right;
         restoreButton.Click += (_, _) => RestoreDefaultHotkeySettings();
         panel.Children.Add(restoreButton);
 
@@ -2066,6 +2827,21 @@ public partial class ManualDataEntryWindow : Window
             BorderBrush = BrushFrom("#24415B"),
             BorderThickness = new Thickness(1),
             Cursor = System.Windows.Input.Cursors.Hand
+        };
+    }
+
+    private Button CreateSettingsButton(string text, SettingsButtonKind kind = SettingsButtonKind.Secondary)
+    {
+        string styleKey = kind switch
+        {
+            SettingsButtonKind.Primary => "SettingsPrimaryButtonStyle",
+            SettingsButtonKind.Danger => "SettingsDangerButtonStyle",
+            _ => "SettingsSecondaryButtonStyle"
+        };
+        return new Button
+        {
+            Content = text,
+            Style = (Style)FindResource(styleKey)
         };
     }
 
