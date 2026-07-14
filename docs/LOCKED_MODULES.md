@@ -2,7 +2,7 @@
 
 本文档用于约束后续 Codex 任务：任何新修复开始前，都应先阅读本文件。除非用户明确授权，后续任务不得修改本文档列出的已收口行为。
 
-最近锁定任务：`TASK-RELEASE-PACKAGING-010`
+最近锁定任务：`TASK-DATA-BACKUP-RESTORE-011`
 
 ## 1. 已锁定模块
 
@@ -848,6 +848,148 @@ Protection tests:
 13. `artifacts` 和桌面 `.lnk` 不得提交到 Git。
 14. `v8.2.0` 及更早发布目录保持不变，不追溯改名。
 15. 后续正式版本必须继续使用统一发布脚本。
+
+### 1.27 TASK-DATA-BACKUP-RESTORE-011：本地数据库安全备份与恢复
+
+锁定基线：
+
+- 版本：`v8.3.0`
+- 功能提交：`ef64e3033880aea36762badeba1d4cd32770570c`
+- 测试基线：`1047/1047`
+
+#### A. 路径与程序集
+
+1. 正式数据库路径固定为 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db`。
+2. 备份目录固定为 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\backups`。
+3. 恢复暂存目录固定为 `%LocalAppData%\CrossETF.Terminal.UiShell.Reference\restore`。
+4. 中文 EXE 名称不得改变程序集 `AssemblyName` 或程序集身份。
+5. 不迁移数据库目录，不改变正式数据库文件名。
+6. 不改变 `LocalDatabase` 的 `Pooling=false` 策略。
+
+#### B. 备份方式
+
+1. 活动 SQLite 数据库必须使用 `SqliteConnection.BackupDatabase`。
+2. 不得直接复制正在使用的数据库主文件制作备份。
+3. 临时备份只有校验成功后才能原子改名为正式 `.db`。
+4. 每份备份必须使用只读连接执行完整 `PRAGMA integrity_check`。
+5. `integrity_check` 结果必须严格为单行 `ok`。
+6. 备份必须包含 `strategy_config`、`trade_log`、`app_settings` 基础表。
+7. 无效备份不得进入可恢复状态。
+8. 备份不得修改活动数据库、WAL 模式或用户表。
+9. 不得删除活动数据库的 WAL/SHM 来制作备份。
+
+#### C. 备份类型
+
+1. 备份类型只允许 `daily`、`manual`、`preupgrade`、`prerestore`。
+2. 备份文件名必须包含毫秒时间、程序短版本和备份类型。
+3. 备份文件名必须唯一，不得覆盖已有备份。
+4. 手动备份只包含已经保存到 SQLite 的数据，不自动保存界面编辑。
+
+#### D. 升级前备份
+
+1. `preupgrade` 在 `App.OnStartup` 中执行。
+2. 必须早于 `base.OnStartup`、`MainWindow`、`LocalDataRepository` 和 `LocalDatabase.Initialize`。
+3. 数据库不存在时不创建空备份。
+4. 记录版本与当前版本不同，或版本键不存在时，必须创建 `preupgrade`。
+5. `preupgrade` 创建并校验成功后才允许继续初始化。
+6. `preupgrade` 失败必须阻断数据库初始化和主窗口创建。
+7. 不得先写入当前版本再创建升级前备份。
+
+#### E. 每日备份
+
+1. 每日备份按本机自然日判断。
+2. 当天已有有效 `daily` 或 `preupgrade` 时不得重复创建自动备份。
+3. `manual` 不受每日一次限制，也不能代替当天自动备份。
+4. 自动备份失败不得记录为已备份。
+5. 自动备份失败允许继续启动，但必须明确记录并提示。
+6. 自动备份不得触发网络请求。
+
+#### F. 保留策略和并发
+
+1. 最多保留最近 30 份有效受控备份。
+2. 只有新备份校验成功后才能清理旧备份。
+3. 非受控文件、pending 文件、当前数据库和已选待恢复备份不得删除。
+4. 旧备份清理失败不得使新备份失败。
+5. 同进程备份和恢复暂存操作通过 `SemaphoreSlim` 串行。
+6. 跨进程使用 `backups\.backup.lock` 和 `FileShare.None`。
+7. 无法获得跨进程锁时不得重复执行或删除其它进程文件。
+8. 备份服务不得增加全局数据库长连接。
+
+#### G. 恢复暂存
+
+1. 程序运行中不得直接替换活动数据库。
+2. 恢复必须经过两次明确确认。
+3. 只允许恢复受控 `backups` 目录中的有效备份。
+4. 备份源文件和暂存副本必须校验 SHA-256。
+5. `pending_restore.db` 必须先写临时文件、校验后再原子改名。
+6. `pending_restore.json` 必须在 pending 数据库完成后最后写入。
+7. marker 不得包含可由用户控制的任意恢复目标路径。
+8. 恢复目标只能是固定正式数据库。
+9. 取消任意一次确认时，不得生成 pending 文件、关闭程序或修改数据库。
+
+#### H. 启动恢复
+
+1. 恢复在 `MainWindow` 及业务数据库连接创建前执行。
+2. marker、pending、SHA-256、`integrity_check` 和基础表必须全部验证。
+3. 替换前必须创建并校验 `prerestore` 安全备份。
+4. `prerestore` 失败不得替换当前数据库。
+5. 替换前必须安全隔离旧 WAL/SHM。
+6. 替换后必须立即重新执行完整性和基础表校验。
+7. 成功后清理 `pending_restore.db`、`pending_restore.json` 及临时候选文件。
+8. `prerestore` 备份必须保留。
+
+#### I. 失败和回滚
+
+1. 数据库替换后校验失败必须回滚。
+2. 回滚必须使用当次 `prerestore` 备份。
+3. 回滚完成后必须再次执行完整栧和基础表校验。
+4. 回滚成功时允许使用原数据库继续启动。
+5. 回滚失败必须阻断主窗口和数据库初始化。
+6. 回滚失败不得删除恢复证据、marker、pending 或安全备份。
+7. 不得伪造恢复成功状态。
+
+#### J. 数据真实性
+
+恢复不得：
+
+- 修改 TradeLog ID、时间、动作或金额。
+- 自动新增或删除 TradeLog。
+- 清空 `market_history_cache`。
+- 把恢复操作当作交易。
+- 生成委托定稿或模拟行情。
+
+#### K. UI 和结果提示
+
+1. 备份恢复功能保留在 `ManualDataEntryWindow` 的“系统维护”页。
+2. 不新建独立备份或恢复主窗口。
+3. 不修改 `ManualDataEntryWindow` 标题栏、`WindowChrome` 或白闪逻辑。
+4. 未选中有效备份时恢复按钮必须禁用。
+5. 无效备份可显示但不得恢复。
+6. 页面不得显示 PushPlus Token 或 TradeLog 明细内容。
+7. `restore_result.json` 的结果只显示一次，确认后清理。
+8. 成功和失败提示不得泄露数据库内部内容。
+
+#### L. 严格不得影响
+
+- TradeLog 事实源。
+- `AccountReplayService`。
+- `StrategyDecisionService`。
+- `OrderDraftService` 和 `OrderFinalizationService`。
+- `MarketDataRefreshService`、`MarketDataClient` 和 `GlobalMarketRequestScheduler`。
+- `ChartDataRefreshCoordinator`、`ChartWindowManager` 和 `ChartWindowLifetime`。
+- MA、B/S、viewport 和十字光标。
+- 风险中心诊断逻辑。
+- PushPlus 和语音预警逻辑。
+- 全局快捷键逻辑。
+- 主界面随机 2-4 秒刷新。
+- `TASK-RELEASE-PACKAGING-010` 的发布规范。
+
+#### M. 本地边界
+
+1. 本模块只处理当前 Windows 用户的本地备份。
+2. 不上传云端，不使用 FTP、网盘或任何外部网络。
+3. 不要求管理员权限，不增加 Windows 服务或常驻进程。
+4. 用户数据库、备份、恢复文件和锁文件不得提交到 Git。
 
 ## 2. 后续任务解锁流程
 
