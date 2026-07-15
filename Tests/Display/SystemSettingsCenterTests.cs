@@ -230,7 +230,7 @@ public sealed class SystemSettingsCenterTests
         string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
         string panel = Slice(code, "private UIElement CreateGeneralSettingsPanel()", "private UIElement CreateRuntimeDiagnosticsPanel()");
 
-        Assert.Contains("V8.6.0", panel, StringComparison.Ordinal);
+        Assert.Contains("MainWindow.ResolveDisplayVersion()", panel, StringComparison.Ordinal);
         Assert.Contains("FileVersion", panel, StringComparison.Ordinal);
         Assert.Contains("构建标识", panel, StringComparison.Ordinal);
         Assert.DoesNotContain("程序集 InformationalVersion", panel, StringComparison.Ordinal);
@@ -445,14 +445,14 @@ public sealed class SystemSettingsCenterTests
     }
 
     [Fact]
-    public void VersionContract_IsV860AndDoesNotChangeAssemblyName()
+    public void VersionContract_IsV870AndDoesNotChangeAssemblyName()
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.6.0</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.6.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.6.0.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.6.0</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.7.0</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.7.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.7.0.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.7.0</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 

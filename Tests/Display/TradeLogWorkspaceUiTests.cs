@@ -386,14 +386,14 @@ public sealed class TradeLogWorkspaceUiTests
     }
 
     [Fact]
-    public void VersionContract_IsV860AndAssemblyNameRemainsDefault()
+    public void VersionContract_IsV870AndAssemblyNameRemainsDefault()
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.6.0</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.6.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.6.0.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.6.0</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.7.0</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.7.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.7.0.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.7.0</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 

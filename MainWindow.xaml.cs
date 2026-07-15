@@ -110,6 +110,7 @@ public partial class MainWindow : Window
     private string? _lastOrderDraftSignature;
     private bool _orderDraftQueued;
     private bool _alertDeliveryQueued;
+    private MarketMonitorWindow? _marketMonitorWindow;
     private RiskCenterWindow? _riskCenterWindow;
     private readonly Dictionary<string, DateTimeOffset> _strategyRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _orderRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
@@ -1541,8 +1542,13 @@ public partial class MainWindow : Window
     public static bool IsRiskCenterNavigation(string navigationName)
         => string.Equals(navigationName, "风险中心", StringComparison.Ordinal);
 
+    public static bool IsMarketMonitorNavigation(string navigationName)
+        => string.Equals(navigationName, "行情监控", StringComparison.Ordinal);
+
     public static bool IsActionableNavigation(string navigationName)
-        => ResolveManualEntryScopeForNavigation(navigationName) is not null || IsRiskCenterNavigation(navigationName);
+        => ResolveManualEntryScopeForNavigation(navigationName) is not null
+           || IsMarketMonitorNavigation(navigationName)
+           || IsRiskCenterNavigation(navigationName);
 
     public static string BuildVersionDisplayText()
         => $"版本： {ResolveDisplayVersion()}";
@@ -1582,6 +1588,12 @@ public partial class MainWindow : Window
         e.Handled = true;
         SelectNavigation(navigationName);
 
+        if (IsMarketMonitorNavigation(navigationName))
+        {
+            OpenMarketMonitor();
+            return;
+        }
+
         if (IsRiskCenterNavigation(navigationName))
         {
             OpenRiskCenter();
@@ -1610,6 +1622,22 @@ public partial class MainWindow : Window
             bool isSelected = string.Equals(name, navigationName, StringComparison.Ordinal);
             label.FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal;
         }
+    }
+
+    private void OpenMarketMonitor()
+    {
+        if (_marketMonitorWindow is { IsVisible: true })
+        {
+            _marketMonitorWindow.Activate();
+            return;
+        }
+
+        _marketMonitorWindow = new MarketMonitorWindow(_repository)
+        {
+            Owner = this
+        };
+        _marketMonitorWindow.Closed += (_, _) => _marketMonitorWindow = null;
+        _marketMonitorWindow.Show();
     }
 
     private void OpenRiskCenter()

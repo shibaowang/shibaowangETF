@@ -858,7 +858,7 @@ public partial class ManualDataEntryWindow : Window
         content.Children.Add(CreateMaintenanceText("软件信息", 17, "#EAF6FF", FontWeights.SemiBold));
         content.Children.Add(CreateTrimmableInformationGrid(
             ("产品名称", "跨境ETF智能投资决策系统"),
-            ("当前版本", "V8.6.0"),
+            ("当前版本", MainWindow.ResolveDisplayVersion()),
             ("FileVersion", versionInfo.FileVersion ?? "--"),
             ("构建标识", buildIdentifier)));
         card.Child = content;

@@ -194,6 +194,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 `V8.6.0` 独立测试版仅优化现有 TradeLog 页面的信息层级、四操作工具栏、编辑状态提示和数据表格视觉。TradeLog 仍是账户与持仓回放的唯一事实源，只有用户点击“保存全部”才写入数据库；保存、账务推演、账户回放、字段、下拉选项和用户列顺序持久化口径均未改变。详细边界见 `docs/TASK_TRADELOG_UI_018.md`。
 
+`V8.7.0` 独立测试版将左侧既有“行情监控”入口接入只读行情监控中心。窗口复用固定顶部标的、启用策略、现有场内持仓、启用场外通道及本地行情缓存，显示缓存新鲜度和行情源状态；窗口只读取本地 SQLite，2 秒自动重读，不新增联网链路、手动刷新按钮或业务写入。详细边界见 `docs/TASK_MARKET_MONITOR_019.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```
