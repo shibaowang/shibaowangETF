@@ -111,6 +111,7 @@ public partial class MainWindow : Window
     private bool _orderDraftQueued;
     private bool _alertDeliveryQueued;
     private MarketMonitorWindow? _marketMonitorWindow;
+    private IndicatorDrawdownWindow? _indicatorDrawdownWindow;
     private CapitalPositionWindow? _capitalPositionWindow;
     private RiskCenterWindow? _riskCenterWindow;
     private readonly Dictionary<string, DateTimeOffset> _strategyRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
@@ -1549,9 +1550,13 @@ public partial class MainWindow : Window
     public static bool IsCapitalPositionNavigation(string navigationName)
         => string.Equals(navigationName, "资金仓位", StringComparison.Ordinal);
 
+    public static bool IsIndicatorDrawdownNavigation(string navigationName)
+        => string.Equals(navigationName, "指标回撤", StringComparison.Ordinal);
+
     public static bool IsActionableNavigation(string navigationName)
         => ResolveManualEntryScopeForNavigation(navigationName) is not null
            || IsMarketMonitorNavigation(navigationName)
+           || IsIndicatorDrawdownNavigation(navigationName)
            || IsCapitalPositionNavigation(navigationName)
            || IsRiskCenterNavigation(navigationName);
 
@@ -1602,6 +1607,12 @@ public partial class MainWindow : Window
         if (IsRiskCenterNavigation(navigationName))
         {
             OpenRiskCenter();
+            return;
+        }
+
+        if (IsIndicatorDrawdownNavigation(navigationName))
+        {
+            OpenIndicatorDrawdown();
             return;
         }
 
@@ -1756,6 +1767,27 @@ public partial class MainWindow : Window
         border.AppendChild(presenter);
         template.VisualTree = border;
         return template;
+    }
+
+    private void OpenIndicatorDrawdown()
+    {
+        if (_indicatorDrawdownWindow is { IsVisible: true })
+        {
+            if (_indicatorDrawdownWindow.WindowState == WindowState.Minimized)
+            {
+                _indicatorDrawdownWindow.WindowState = WindowState.Normal;
+            }
+
+            _indicatorDrawdownWindow.Activate();
+            return;
+        }
+
+        _indicatorDrawdownWindow = new IndicatorDrawdownWindow(_repository)
+        {
+            Owner = this
+        };
+        _indicatorDrawdownWindow.Closed += (_, _) => _indicatorDrawdownWindow = null;
+        _indicatorDrawdownWindow.Show();
     }
 
     private void OpenCapitalPosition()

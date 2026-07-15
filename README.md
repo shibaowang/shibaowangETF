@@ -198,6 +198,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 `V8.8.0` 独立测试版接通左侧既有“资金仓位”入口，新增单实例、纯本地只读的资金仓位中心。页面只读取已持久化的账户回放、场内/场外持仓回放、策略决策和真实行情缓存元数据，不重新回放 TradeLog、不重新估值、不联网、不写数据库，并以 2 秒固定间隔重读同一只读快照。详细边界见 `docs/TASK_CAPITAL_POSITION_020.md`。
 
+`V8.9.0` 测试版接通左侧既有“指标回撤”入口，新增单实例、纯本地只读的指标回撤中心。首版仅覆盖 `251.NDXTMC`、`100.NDX100` 和当前启用策略对应的去重场内 ETF；历史指标统一使用真实前复权日线收盘价，最新真实 quote 仅用于最新价和当前回撤。窗口不联网、不写数据库、不读取 TradeLog，也不修改主界面旧回撤图或图表模块。详细边界见 `docs/TASK_INDICATOR_DRAWDOWN_021.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```

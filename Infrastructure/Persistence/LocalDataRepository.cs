@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace CrossETF.Terminal.UiShell.Reference.Infrastructure.Persistence;
 
-public sealed class LocalDataRepository : IAlertDeliveryStore, IChartIntradayCacheStore
+public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartIntradayCacheStore
 {
     private const int MaxAccountReplaySnapshots = 500;
     private const double SnapshotValueTolerance = 0.009999;

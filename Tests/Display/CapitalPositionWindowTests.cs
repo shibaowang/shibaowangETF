@@ -442,12 +442,12 @@ public sealed class CapitalPositionWindowTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.8.0</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.8.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.8.0.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.8.0</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.9.0</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.9.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.9.0.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.9.0</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
-        Assert.Equal("V8.8.0", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("V8.9.0", MainWindow.ResolveDisplayVersion());
     }
 
     [Fact]
