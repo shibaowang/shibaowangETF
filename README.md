@@ -192,6 +192,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 `V8.5.0` 独立测试版将现有“系统设置”范围重构为固定左侧二级菜单和缓存右侧页面，统一承载数据维护、备份恢复、预警、快捷键、只读诊断摘要、运行健康及版本信息。入口仍复用 `ManualDataEntryWindow`，不新增一级模块或独立窗口，不修改备份、预警、快捷键、诊断、运行健康及交易业务服务。详细边界见 `docs/TASK_UI_SETTINGS_CENTER_017.md`。
 
+`V8.6.0` 独立测试版仅优化现有 TradeLog 页面的信息层级、四操作工具栏、编辑状态提示和数据表格视觉。TradeLog 仍是账户与持仓回放的唯一事实源，只有用户点击“保存全部”才写入数据库；保存、账务推演、账户回放、字段、下拉选项和用户列顺序持久化口径均未改变。详细边界见 `docs/TASK_TRADELOG_UI_018.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```

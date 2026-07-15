@@ -734,16 +734,254 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- TradeLog-only workspace resources. Keep these keyed so other tabs retain their current visuals. -->
+        <Style x:Key="TradeLogWorkspaceCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#061622" />
+            <Setter Property="BorderBrush" Value="#1F4E68" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+        </Style>
+
+        <Style x:Key="TradeLogToolbarStyle" TargetType="Border">
+            <Setter Property="Background" Value="#082235" />
+            <Setter Property="BorderBrush" Value="#1F4E68" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Padding" Value="14,11,14,9" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+
+        <Style x:Key="TradeLogButtonBaseStyle" TargetType="Button">
+            <Setter Property="MinWidth" Value="102" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Margin" Value="0,0,9,0" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Foreground" Value="#F4FAFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="TradeLogButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TradeLogSecondaryButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource TradeLogButtonBaseStyle}">
+            <Setter Property="Background" Value="#0B2538" />
+            <Setter Property="BorderBrush" Value="#2A6F93" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#123A55" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="BorderBrush" Value="#3D88B0" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#071B2A" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="BorderBrush" Value="#52A8D0" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#101C26" />
+                    <Setter Property="Foreground" Value="#91A4B2" />
+                    <Setter Property="BorderBrush" Value="#263947" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TradeLogPrimaryButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource TradeLogButtonBaseStyle}">
+            <Setter Property="MinWidth" Value="116" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Background" Value="#0E5A78" />
+            <Setter Property="BorderBrush" Value="#2A8DB6" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#14769A" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="BorderBrush" Value="#4CB4DC" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#0A4057" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="BorderBrush" Value="#2A8DB6" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#17313E" />
+                    <Setter Property="Foreground" Value="#91A4B2" />
+                    <Setter Property="BorderBrush" Value="#294958" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TradeLogDangerButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource TradeLogButtonBaseStyle}">
+            <Setter Property="Background" Value="#46191E" />
+            <Setter Property="BorderBrush" Value="#9F3B45" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#67242C" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="BorderBrush" Value="#D05B67" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#321216" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="BorderBrush" Value="#9F3B45" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#2B1D20" />
+                    <Setter Property="Foreground" Value="#A99498" />
+                    <Setter Property="BorderBrush" Value="#57353B" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <ControlTemplate x:Key="TradeLogValidationErrorTemplate">
+            <Border BorderBrush="#F87171"
+                    BorderThickness="1"
+                    ToolTip="{Binding ElementName=TradeLogValidationAdorner, Path=AdornedElement.(Validation.Errors)[0].ErrorContent}">
+                <AdornedElementPlaceholder x:Name="TradeLogValidationAdorner" />
+            </Border>
+        </ControlTemplate>
+
+        <Style x:Key="TradeLogEditableTextBlockStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource EntryDataGridTextBlockStyle}">
+            <Setter Property="Padding" Value="9,0" />
+            <Setter Property="Foreground" Value="#EAF6FF" />
+        </Style>
+
+        <Style x:Key="TradeLogReadOnlyTextBlockStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource EntryDataGridTextBlockStyle}">
+            <Setter Property="Padding" Value="9,0" />
+            <Setter Property="Foreground" Value="#A9BDCC" />
+        </Style>
+
+        <Style x:Key="TradeLogEditingTextBoxStyle"
+               TargetType="TextBox"
+               BasedOn="{StaticResource EntryDataGridEditingTextBoxStyle}">
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="Validation.ErrorTemplate" Value="{StaticResource TradeLogValidationErrorTemplate}" />
+            <Style.Triggers>
+                <Trigger Property="Validation.HasError" Value="True">
+                    <Setter Property="BorderBrush" Value="#F87171" />
+                    <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=(Validation.Errors)[0].ErrorContent}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TradeLogColumnHeaderStyle"
+               TargetType="DataGridColumnHeader"
+               BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Background" Value="#0B2B42" />
+            <Setter Property="Foreground" Value="#EAF6FF" />
+        </Style>
+
+        <Style x:Key="TradeLogCalculatedColumnHeaderStyle"
+               TargetType="DataGridColumnHeader"
+               BasedOn="{StaticResource TradeLogColumnHeaderStyle}">
+            <Setter Property="Background" Value="#182838" />
+        </Style>
+
+        <Style x:Key="TradeLogEditableCellStyle"
+               TargetType="DataGridCell"
+               BasedOn="{StaticResource {x:Type DataGridCell}}">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Style.Triggers>
+                <Trigger Property="IsEditing" Value="True">
+                    <Setter Property="Background" Value="#0D3048" />
+                    <Setter Property="BorderBrush" Value="#3D88B0" />
+                </Trigger>
+                <Trigger Property="Validation.HasError" Value="True">
+                    <Setter Property="BorderBrush" Value="#F87171" />
+                    <Setter Property="BorderThickness" Value="1" />
+                    <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=(Validation.Errors)[0].ErrorContent}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TradeLogReadOnlyCellStyle"
+               TargetType="DataGridCell"
+               BasedOn="{StaticResource {x:Type DataGridCell}}">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="#142331" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="ToolTip" Value="系统计算字段，保存后由账务回放更新。" />
+        </Style>
+
+        <Style x:Key="TradeLogDataGridRowStyle"
+               TargetType="DataGridRow"
+               BasedOn="{StaticResource {x:Type DataGridRow}}">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Height" Value="36" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Id}" Value="0">
+                    <Setter Property="Background" Value="#352619" />
+                    <Setter Property="Foreground" Value="#FFE1BA" />
+                    <Setter Property="ToolTip" Value="新增记录，尚未保存。" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TradeLogDataGridStyle"
+               TargetType="DataGrid"
+               BasedOn="{StaticResource {x:Type DataGrid}}">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="ColumnHeaderHeight" Value="38" />
+            <Setter Property="RowHeight" Value="36" />
+            <Setter Property="MinRowHeight" Value="34" />
+            <Setter Property="ColumnHeaderStyle" Value="{StaticResource TradeLogColumnHeaderStyle}" />
+            <Setter Property="RowStyle" Value="{StaticResource TradeLogDataGridRowStyle}" />
+            <Setter Property="CellStyle" Value="{StaticResource TradeLogEditableCellStyle}" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HorizontalGridLinesBrush" Value="#173E55" />
+            <Setter Property="VerticalGridLinesBrush" Value="Transparent" />
+            <Setter Property="HorizontalScrollBarVisibility" Value="Auto" />
+            <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="#071724" />
+            <Setter Property="RowBackground" Value="#071B2A" />
+            <Setter Property="AlternatingRowBackground" Value="#082235" />
+        </Style>
     </Window.Resources>
 
     <Grid Margin="18" Background="#050B14">
         <Grid.RowDefinitions>
-            <RowDefinition Height="58" />
+            <RowDefinition x:Name="WindowHeadingRow" Height="58" />
             <RowDefinition Height="*" />
             <RowDefinition Height="42" />
         </Grid.RowDefinitions>
 
-        <Grid>
+        <Grid x:Name="WindowHeadingArea">
             <StackPanel VerticalAlignment="Center">
                 <TextBlock x:Name="WindowTitleText" Text="本地数据手动录入" FontSize="24" FontWeight="SemiBold" />
                 <TextBlock x:Name="DatabasePathText" Margin="0,8,0,0" FontSize="13" Foreground="{StaticResource EntryMutedBrush}" />
@@ -768,8 +1006,21 @@
             <TabItem x:Name="BasePositionSettingsTabItem" Header="底仓基准设置">
                 <Grid x:Name="BasePositionSettingsTabRoot" Background="#050B14" />
             </TabItem>
-            <TabItem x:Name="TradeLogTabItem" Header="TradeLog">
-                <Grid x:Name="TradeLogTabRoot" Background="#050B14" />
+            <TabItem x:Name="TradeLogTabItem"
+                     Header="TradeLog"
+                     HorizontalContentAlignment="Stretch"
+                     VerticalContentAlignment="Stretch">
+                <Grid x:Name="TradeLogTabRoot"
+                      Background="#050B14"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                </Grid>
             </TabItem>
             <TabItem x:Name="SystemMaintenanceTabItem" Header="系统维护">
                 <Grid x:Name="SystemMaintenanceTabRoot" Background="#050B14" />

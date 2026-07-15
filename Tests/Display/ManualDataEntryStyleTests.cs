@@ -25,7 +25,8 @@ public class ManualDataEntryStyleTests
 
         Assert.Contains("ElementStyle = elementStyle", code);
         Assert.Contains("EditingElementStyle = editingStyle", code);
-        Assert.True(CountOccurrences(code, "EditingElementStyle = editingStyle") >= 3);
+        Assert.True(CountOccurrences(code, "EditingElementStyle = editingStyle") >= 2);
+        Assert.Contains("EditingElementStyle = (Style)FindResource(\"TradeLogEditingTextBoxStyle\")", code);
     }
 
     [Fact]

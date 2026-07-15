@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -42,6 +43,14 @@ public partial class ManualDataEntryWindow : Window
         Secondary,
         Primary,
         Danger
+    }
+
+    private enum TradeLogEditState
+    {
+        Saved,
+        Pending,
+        Saving,
+        Failed
     }
 
     private sealed record SystemSettingsPageDefinition(
@@ -104,6 +113,7 @@ public partial class ManualDataEntryWindow : Window
     private const string PositionColumnLayoutKey = "position_state";
     private const string OtcColumnLayoutKey = "otc_map";
     private const string TradeLogColumnLayoutKey = "trade_log";
+    private const string TradeLogFinancialDisplayFormat = "{0:N2}";
 
     private readonly LocalDataRepository _repository;
     private readonly string _databasePath;
@@ -142,7 +152,11 @@ public partial class ManualDataEntryWindow : Window
     private bool _isApplyingTradeLogAutoCalc;
     private bool _isLoadingTradeLogs;
     private bool _isSavingTradeLogs;
+    private bool _tradeLogHasPendingChanges;
     private Button? _tradeLogSaveButton;
+    private TextBlock? _tradeLogEditStateText;
+    private TextBlock? _tradeLogRecordCountText;
+    private TextBlock? _tradeLogEmptyStateText;
     private DataGrid _strategyGrid = null!;
     private DataGrid _positionGrid = null!;
     private DataGrid _otcGrid = null!;
@@ -230,8 +244,15 @@ public partial class ManualDataEntryWindow : Window
         DatabasePathText.Text = scope == ManualEntryScope.SystemSettings
             ? "管理数据、备份、通知与系统运行状态"
             : _databasePath;
+        bool tradeLogOnly = scope == ManualEntryScope.TradeLog;
+        Visibility sharedHeadingVisibility = tradeLogOnly ? Visibility.Collapsed : Visibility.Visible;
+        WindowHeadingArea.Visibility = sharedHeadingVisibility;
+        WindowTitleText.Visibility = sharedHeadingVisibility;
+        DatabasePathText.Visibility = sharedHeadingVisibility;
+        WindowHeadingRow.Height = tradeLogOnly ? new GridLength(0) : new GridLength(58);
+        bool useHeaderlessTabs = scope == ManualEntryScope.SystemSettings || tradeLogOnly;
         EntryTabs.Style = (Style)FindResource(
-            scope == ManualEntryScope.SystemSettings
+            useHeaderlessTabs
                 ? "EntryHeaderlessTabControlStyle"
                 : "EntryNormalTabControlStyle");
 
@@ -506,33 +527,30 @@ public partial class ManualDataEntryWindow : Window
 
     private void BuildTradeLogTab()
     {
-        _tradeLogGrid = CreateDataGrid(_tradeLogs);
-        AddTextColumn(_tradeLogGrid, "ID", nameof(TradeLogRecord.Id), 64, true);
-        AddTextColumn(_tradeLogGrid, "时间", nameof(TradeLogRecord.Time), 150);
-        AddTextColumn(_tradeLogGrid, "策略代码", nameof(TradeLogRecord.StrategyCode), 120);
-        AddTextColumn(_tradeLogGrid, "实际代码", nameof(TradeLogRecord.ActualCode), 120);
-        AddTradeLogComboColumn(_tradeLogGrid, "动作", nameof(TradeLogRecord.Action), TradeLogActions, 110);
-        AddTradeLogNumberColumn(_tradeLogGrid, "价格", nameof(TradeLogRecord.Price), 96);
-        AddTradeLogNumberColumn(_tradeLogGrid, "数量", nameof(TradeLogRecord.Quantity), 96);
-        AddTradeLogNumberColumn(_tradeLogGrid, "金额", nameof(TradeLogRecord.Amount), 110);
-        AddTradeLogComboColumn(_tradeLogGrid, "档位", nameof(TradeLogRecord.Tier), TradeLogTiers, 140);
-        AddTradeLogComboColumn(_tradeLogGrid, "来源", nameof(TradeLogRecord.Source), TradeLogSources, 110);
-        AddTradeLogNumberColumn(_tradeLogGrid, "手续费", nameof(TradeLogRecord.Fee), 96);
-        AddTextColumn(_tradeLogGrid, "备注", nameof(TradeLogRecord.Memo), 180);
-        AddTradeLogNumberColumn(_tradeLogGrid, "净现金流", nameof(TradeLogRecord.NetCashImpact), 110, true);
-        AddTradeLogNumberColumn(_tradeLogGrid, "本金", nameof(TradeLogRecord.Principal), 110, true);
-        AddTradeLogNumberColumn(_tradeLogGrid, "现金余额", nameof(TradeLogRecord.CashBalance), 110, true);
-        AddTradeLogNumberColumn(_tradeLogGrid, "总资产", nameof(TradeLogRecord.TotalAssets), 110, true);
+        _tradeLogGrid = CreateTradeLogDataGrid();
+        AddTradeLogTextColumn(_tradeLogGrid, "ID", nameof(TradeLogRecord.Id), 64, true, "数据库审计ID，删除历史记录后不会重新编号。");
+        AddTradeLogTextColumn(_tradeLogGrid, "时间", nameof(TradeLogRecord.Time), 155, toolTip: "交易事实发生时间。");
+        AddTradeLogTextColumn(_tradeLogGrid, "策略代码", nameof(TradeLogRecord.StrategyCode), 110, toolTip: "归属策略代码。");
+        AddTradeLogTextColumn(_tradeLogGrid, "实际代码", nameof(TradeLogRecord.ActualCode), 110, toolTip: "实际交易或资金代码。");
+        AddTradeLogComboColumn(_tradeLogGrid, "动作", nameof(TradeLogRecord.Action), TradeLogActions, 100, "交易事实动作。");
+        AddTradeLogComboColumn(_tradeLogGrid, "来源", nameof(TradeLogRecord.Source), TradeLogSources, 105, "交易记录来源。");
+        AddTradeLogComboColumn(_tradeLogGrid, "档位", nameof(TradeLogRecord.Tier), TradeLogTiers, 140, "交易对应策略档位。");
+        AddTradeLogNumberColumn(_tradeLogGrid, "数量", nameof(TradeLogRecord.Quantity), 100, toolTip: "允许小数数量。");
+        AddTradeLogNumberColumn(_tradeLogGrid, "价格", nameof(TradeLogRecord.Price), 100, toolTip: "允许小数价格。");
+        AddTradeLogNumberColumn(_tradeLogGrid, "金额", nameof(TradeLogRecord.Amount), 115, toolTip: "可由价格×数量自动计算，也保留人工覆盖能力。");
+        AddTradeLogNumberColumn(_tradeLogGrid, "手续费", nameof(TradeLogRecord.Fee), 95, toolTip: "本次交易手续费。");
+        AddTradeLogTextColumn(_tradeLogGrid, "备注", nameof(TradeLogRecord.Memo), 180, toolTip: "交易事实备注。", fillRemainingWidth: true, minWidth: 180);
+        AddTradeLogNumberColumn(_tradeLogGrid, "净现金流", nameof(TradeLogRecord.NetCashImpact), 115, true, "系统根据TradeLog自动计算，只读。", displayFormat: TradeLogFinancialDisplayFormat);
+        AddTradeLogNumberColumn(_tradeLogGrid, "本金", nameof(TradeLogRecord.Principal), 115, true, "系统根据TradeLog自动计算，只读。", displayFormat: TradeLogFinancialDisplayFormat);
+        AddTradeLogNumberColumn(_tradeLogGrid, "现金余额", nameof(TradeLogRecord.CashBalance), 115, true, "系统根据TradeLog自动计算，只读。", displayFormat: TradeLogFinancialDisplayFormat);
+        AddTradeLogNumberColumn(_tradeLogGrid, "总资产", nameof(TradeLogRecord.TotalAssets), 115, true, "系统根据TradeLog自动计算，只读。", displayFormat: TradeLogFinancialDisplayFormat);
         FinalizeManualEntryGrid(_tradeLogGrid, TradeLogColumnLayoutKey);
         _tradeLogGrid.CellEditEnding += TradeLogGrid_CellEditEnding;
         _tradeLogGrid.CurrentCellChanged += TradeLogGrid_CurrentCellChanged;
+        _tradeLogs.CollectionChanged += TradeLogs_CollectionChanged;
 
-        TradeLogTabRoot.Children.Add(CreateEditableTab(
-            _tradeLogGrid,
-            () => _tradeLogs.Add(new TradeLogRecord { Time = LocalDatabase.NowText(), Action = "买入" }),
-            () => BeginEdit(_tradeLogGrid),
-            DeleteSelectedTradeLog,
-            SaveTradeLogs));
+        TradeLogTabRoot.Children.Add(CreateTradeLogWorkspace());
+        UpdateTradeLogWorkspaceState();
     }
 
     private void BuildSystemMaintenanceTab()
@@ -840,7 +858,7 @@ public partial class ManualDataEntryWindow : Window
         content.Children.Add(CreateMaintenanceText("软件信息", 17, "#EAF6FF", FontWeights.SemiBold));
         content.Children.Add(CreateTrimmableInformationGrid(
             ("产品名称", "跨境ETF智能投资决策系统"),
-            ("当前版本", "V8.5.0"),
+            ("当前版本", "V8.6.0"),
             ("FileVersion", versionInfo.FileVersion ?? "--"),
             ("构建标识", buildIdentifier)));
         card.Child = content;
@@ -2487,6 +2505,229 @@ public partial class ManualDataEntryWindow : Window
         return root;
     }
 
+    private UIElement CreateTradeLogWorkspace()
+    {
+        var root = new Grid
+        {
+            Margin = new Thickness(14, 12, 14, 8),
+            Background = BrushFrom("#050B14"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+        heading.Children.Add(CreateMaintenanceText("交易日志", 24, "#EAF6FF", FontWeights.SemiBold));
+        heading.Children.Add(CreateMaintenanceText(
+            "记录真实资金变动和交易事实。",
+            14,
+            "#9FB7C8",
+            FontWeights.Normal,
+            new Thickness(0, 4, 0, 0)));
+        heading.Children.Add(CreateMaintenanceText(
+            "TradeLog是账户、持仓、成本和回放的唯一事实源，只有点击“保存全部”后才会写入数据库。",
+            13,
+            "#F2A65A",
+            FontWeights.Normal,
+            new Thickness(0, 7, 0, 0)));
+        root.Children.Add(heading);
+
+        var workspaceCard = new Border { Style = (Style)FindResource("TradeLogWorkspaceCardStyle") };
+        var workspace = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        workspace.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        workspace.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        workspace.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var toolbarBorder = new Border
+        {
+            Style = (Style)FindResource("TradeLogToolbarStyle"),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        var toolbar = new Grid();
+        toolbar.RowDefinitions.Add(new RowDefinition { Height = new GridLength(38) });
+        toolbar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var editActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Button addButton = CreateTradeLogActionButton("新增记录", "TradeLogSecondaryButtonStyle");
+        addButton.Click += (_, _) => AddTradeLogRecord();
+        Button editButton = CreateTradeLogActionButton("编辑选中", "TradeLogSecondaryButtonStyle");
+        editButton.Click += (_, _) => BeginEdit(_tradeLogGrid);
+        Button deleteButton = CreateTradeLogActionButton("删除选中", "TradeLogDangerButtonStyle");
+        deleteButton.Click += (_, _) => DeleteSelectedTradeLog();
+        editActions.Children.Add(addButton);
+        editActions.Children.Add(editButton);
+        editActions.Children.Add(deleteButton);
+        toolbar.Children.Add(editActions);
+
+        _tradeLogSaveButton = CreateTradeLogActionButton("保存全部", "TradeLogPrimaryButtonStyle");
+        _tradeLogSaveButton.Margin = new Thickness(12, 0, 0, 0);
+        _tradeLogSaveButton.Click += (_, _) => SaveTradeLogs();
+        Grid.SetColumn(_tradeLogSaveButton, 1);
+        toolbar.Children.Add(_tradeLogSaveButton);
+
+        _tradeLogRecordCountText = CreateMaintenanceText("当前记录：0条", 12, "#8FAABD", FontWeights.Normal);
+        _tradeLogRecordCountText.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetRow(_tradeLogRecordCountText, 1);
+        toolbar.Children.Add(_tradeLogRecordCountText);
+
+        _tradeLogEditStateText = CreateMaintenanceText("已保存", 12, "#84CC16", FontWeights.SemiBold);
+        _tradeLogEditStateText.HorizontalAlignment = HorizontalAlignment.Right;
+        _tradeLogEditStateText.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetRow(_tradeLogEditStateText, 1);
+        Grid.SetColumn(_tradeLogEditStateText, 1);
+        toolbar.Children.Add(_tradeLogEditStateText);
+        toolbarBorder.Child = toolbar;
+        workspace.Children.Add(toolbarBorder);
+
+        var legend = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(14, 10, 14, 10),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        legend.Children.Add(CreateTradeLogLegendItem("可编辑字段", "#0B2B42", "录入后点击“保存全部”写入数据库"));
+        legend.Children.Add(CreateTradeLogLegendItem("系统计算字段", "#182838", "由账务推演生成，不可直接编辑"));
+        Grid.SetRow(legend, 1);
+        workspace.Children.Add(legend);
+
+        var gridHost = new Grid
+        {
+            Background = BrushFrom("#071724"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        gridHost.Children.Add(_tradeLogGrid);
+        _tradeLogEmptyStateText = CreateMaintenanceText(
+            "暂无交易记录，点击‘新增记录’开始录入。",
+            14,
+            "#7E98AA",
+            FontWeights.Normal);
+        _tradeLogEmptyStateText.HorizontalAlignment = HorizontalAlignment.Center;
+        _tradeLogEmptyStateText.VerticalAlignment = VerticalAlignment.Center;
+        _tradeLogEmptyStateText.IsHitTestVisible = false;
+        gridHost.Children.Add(_tradeLogEmptyStateText);
+        Grid.SetRow(gridHost, 2);
+        workspace.Children.Add(gridHost);
+
+        workspaceCard.Child = workspace;
+        Grid.SetRow(workspaceCard, 1);
+        root.Children.Add(workspaceCard);
+        return root;
+    }
+
+    private Button CreateTradeLogActionButton(string text, string styleKey)
+        => new()
+        {
+            Content = text,
+            Style = (Style)FindResource(styleKey)
+        };
+
+    private static UIElement CreateTradeLogLegendItem(string text, string color, string toolTip)
+    {
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 22, 0),
+            ToolTip = toolTip
+        };
+        panel.Children.Add(new Border
+        {
+            Width = 12,
+            Height = 12,
+            Margin = new Thickness(0, 0, 7, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = BrushFrom(color),
+            BorderBrush = BrushFrom("#2A5A74"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(2)
+        });
+        panel.Children.Add(CreateMaintenanceText(text, 12, "#9FB7C8", FontWeights.Normal));
+        return panel;
+    }
+
+    private DataGrid CreateTradeLogDataGrid()
+        => new()
+        {
+            ItemsSource = _tradeLogs,
+            AutoGenerateColumns = false,
+            CanUserAddRows = false,
+            CanUserDeleteRows = false,
+            CanUserReorderColumns = true,
+            IsReadOnly = false,
+            HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            SelectionMode = DataGridSelectionMode.Single,
+            SelectionUnit = DataGridSelectionUnit.FullRow,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Style = (Style)FindResource("TradeLogDataGridStyle")
+        };
+
+    private void AddTradeLogRecord()
+    {
+        var record = new TradeLogRecord { Time = LocalDatabase.NowText(), Action = "买入" };
+        _tradeLogs.Add(record);
+        _tradeLogGrid.SelectedItem = record;
+        _tradeLogGrid.ScrollIntoView(record);
+        _tradeLogGrid.Focus();
+    }
+
+    private void TradeLogs_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        UpdateTradeLogWorkspaceState();
+        if (!_isLoadingTradeLogs && !_isSavingTradeLogs)
+        {
+            SetTradeLogEditState(TradeLogEditState.Pending);
+        }
+    }
+
+    private void UpdateTradeLogWorkspaceState()
+    {
+        if (_tradeLogRecordCountText is not null)
+        {
+            _tradeLogRecordCountText.Text = $"当前记录：{_tradeLogs.Count.ToString(CultureInfo.InvariantCulture)}条";
+        }
+
+        if (_tradeLogEmptyStateText is not null)
+        {
+            _tradeLogEmptyStateText.Visibility = _tradeLogs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private void SetTradeLogEditState(TradeLogEditState state)
+    {
+        _tradeLogHasPendingChanges = state is TradeLogEditState.Pending or TradeLogEditState.Failed;
+        if (_tradeLogEditStateText is null)
+        {
+            return;
+        }
+
+        (string text, string color) = state switch
+        {
+            TradeLogEditState.Pending => ("有未保存修改", "#F2A65A"),
+            TradeLogEditState.Saving => ("保存中", "#60A5FA"),
+            TradeLogEditState.Failed => ("保存失败", "#F87171"),
+            _ => ("已保存", "#84CC16")
+        };
+        _tradeLogEditStateText.Text = text;
+        _tradeLogEditStateText.Foreground = BrushFrom(color);
+    }
+
     private static DataGrid CreateDataGrid<T>(ObservableCollection<T> source)
     {
         return new DataGrid
@@ -2590,14 +2831,56 @@ public partial class ManualDataEntryWindow : Window
         });
     }
 
-    private void AddTradeLogComboColumn(DataGrid grid, string header, string path, string[] values, double width)
+    private void AddTradeLogTextColumn(
+        DataGrid grid,
+        string header,
+        string path,
+        double width,
+        bool readOnly = false,
+        string? toolTip = null,
+        bool fillRemainingWidth = false,
+        double minWidth = 0)
+    {
+        var column = new DataGridTextColumn
+        {
+            Header = CreateTradeLogColumnHeader(header, toolTip),
+            HeaderStyle = (Style)FindResource("TradeLogColumnHeaderStyle"),
+            Width = fillRemainingWidth
+                ? new DataGridLength(1, DataGridLengthUnitType.Star)
+                : new DataGridLength(width),
+            MinWidth = minWidth > 0 ? minWidth : width,
+            IsReadOnly = readOnly,
+            SortMemberPath = path,
+            CellStyle = (Style)FindResource(readOnly ? "TradeLogReadOnlyCellStyle" : "TradeLogEditableCellStyle"),
+            ElementStyle = (Style)FindResource(readOnly ? "TradeLogReadOnlyTextBlockStyle" : "TradeLogEditableTextBlockStyle"),
+            EditingElementStyle = (Style)FindResource("TradeLogEditingTextBoxStyle"),
+            Binding = new Binding(path)
+            {
+                Mode = readOnly ? BindingMode.OneWay : BindingMode.TwoWay,
+                UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
+                TargetNullValue = string.Empty
+            }
+        };
+        grid.Columns.Add(column);
+    }
+
+    private void AddTradeLogComboColumn(
+        DataGrid grid,
+        string header,
+        string path,
+        string[] values,
+        double width,
+        string? toolTip = null)
     {
         grid.Columns.Add(new DataGridComboBoxColumn
         {
-            Header = header,
+            Header = CreateTradeLogColumnHeader(header, toolTip),
+            HeaderStyle = (Style)FindResource("TradeLogColumnHeaderStyle"),
             Width = new DataGridLength(width),
+            MinWidth = width,
             SortMemberPath = path,
             ItemsSource = values,
+            CellStyle = (Style)FindResource("TradeLogEditableCellStyle"),
             ElementStyle = (Style)FindResource("TradeLogComboBoxStyle"),
             EditingElementStyle = (Style)FindResource("TradeLogComboBoxStyle"),
             SelectedItemBinding = new Binding(path)
@@ -2609,27 +2892,51 @@ public partial class ManualDataEntryWindow : Window
         });
     }
 
-    private void AddTradeLogNumberColumn(DataGrid grid, string header, string path, double width, bool readOnly = false)
+    private void AddTradeLogNumberColumn(
+        DataGrid grid,
+        string header,
+        string path,
+        double width,
+        bool readOnly = false,
+        string? toolTip = null,
+        string? displayFormat = null)
     {
-        var elementStyle = (Style)FindResource("EntryDataGridTextBlockStyle");
-        var editingStyle = (Style)FindResource("EntryDataGridEditingTextBoxStyle");
+        string headerStyleKey = readOnly
+            ? "TradeLogCalculatedColumnHeaderStyle"
+            : "TradeLogColumnHeaderStyle";
+        string cellStyleKey = readOnly
+            ? "TradeLogReadOnlyCellStyle"
+            : "TradeLogEditableCellStyle";
         grid.Columns.Add(new DataGridTextColumn
         {
-            Header = header,
+            Header = CreateTradeLogColumnHeader(header, toolTip),
+            HeaderStyle = (Style)FindResource(headerStyleKey),
             Width = new DataGridLength(width),
+            MinWidth = width,
             IsReadOnly = readOnly,
             SortMemberPath = path,
-            ElementStyle = elementStyle,
-            EditingElementStyle = editingStyle,
+            CellStyle = (Style)FindResource(cellStyleKey),
+            ElementStyle = (Style)FindResource(readOnly ? "TradeLogReadOnlyTextBlockStyle" : "TradeLogEditableTextBlockStyle"),
+            EditingElementStyle = (Style)FindResource("TradeLogEditingTextBoxStyle"),
             Binding = new Binding(path)
             {
                 Mode = readOnly ? BindingMode.OneWay : BindingMode.TwoWay,
                 UpdateSourceTrigger = readOnly ? UpdateSourceTrigger.Default : UpdateSourceTrigger.LostFocus,
                 ValidatesOnExceptions = !readOnly,
-                NotifyOnValidationError = !readOnly
+                NotifyOnValidationError = !readOnly,
+                StringFormat = displayFormat
             }
         });
     }
+
+    private static TextBlock CreateTradeLogColumnHeader(string text, string? toolTip)
+        => new()
+        {
+            Text = text,
+            ToolTip = toolTip,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap
+        };
 
     private void FinalizeManualEntryGrid(DataGrid grid, string tabKey)
     {
@@ -2867,6 +3174,8 @@ public partial class ManualDataEntryWindow : Window
             {
                 _isLoadingTradeLogs = false;
             }
+            UpdateTradeLogWorkspaceState();
+            SetTradeLogEditState(TradeLogEditState.Saved);
             _accountState = _repository.ReadLatestAccountState() ?? new AccountStateRecord();
             _basePositionSettings = _repository.ReadBasePositionSettings();
             LoadAccountFields();
@@ -3042,6 +3351,7 @@ public partial class ManualDataEntryWindow : Window
 
         using var _ = AppOperationContext.Begin("TradeLog 保存");
         _isSavingTradeLogs = true;
+        SetTradeLogEditState(TradeLogEditState.Saving);
         if (_tradeLogSaveButton is not null)
         {
             _tradeLogSaveButton.IsEnabled = false;
@@ -3051,6 +3361,7 @@ public partial class ManualDataEntryWindow : Window
         {
             if (!SafeCommitTradeLogGridEdits(out string? commitError))
             {
+                SetTradeLogEditState(TradeLogEditState.Failed);
                 SetStatus(commitError ?? "TradeLog 当前编辑内容无法保存。", true);
                 return;
             }
@@ -3076,6 +3387,7 @@ public partial class ManualDataEntryWindow : Window
 
             CopyTradeLogCalculatedFields(recordsToSave);
             LoadData();
+            SetTradeLogEditState(TradeLogEditState.Saved);
             if (saveResult.ReplayResult.Account.ReplayStatus == "财务异常")
             {
                 SetStatus($"TradeLog 已保存，账户回放异常：{saveResult.ReplayResult.Account.ReplayError}", true);
@@ -3093,6 +3405,7 @@ public partial class ManualDataEntryWindow : Window
         }
         catch (Exception ex)
         {
+            SetTradeLogEditState(TradeLogEditState.Failed);
             AppExceptionLogger.WriteRuntime("ERROR", "TradeLog 保存失败", BuildTradeLogSaveFailureDetail(ex), ex);
             TryWriteRuntimeLog("ERROR", "ManualDataEntryWindow", "保存失败", ex.ToString());
             SetStatus($"保存失败：{ex.Message}", true);
@@ -3130,6 +3443,10 @@ public partial class ManualDataEntryWindow : Window
     {
         if (e.EditAction == DataGridEditAction.Commit)
         {
+            if (!_isLoadingTradeLogs && !_isSavingTradeLogs)
+            {
+                SetTradeLogEditState(TradeLogEditState.Pending);
+            }
             QueueTradeLogAmountCalculation();
         }
     }
