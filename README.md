@@ -196,6 +196,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 `V8.7.0` 独立测试版将左侧既有“行情监控”入口接入只读行情监控中心。窗口复用固定顶部标的、启用策略、现有场内持仓、启用场外通道及本地行情缓存，显示缓存新鲜度和行情源状态；窗口只读取本地 SQLite，2 秒自动重读，不新增联网链路、手动刷新按钮或业务写入。详细边界见 `docs/TASK_MARKET_MONITOR_019.md`。
 
+`V8.8.0` 独立测试版接通左侧既有“资金仓位”入口，新增单实例、纯本地只读的资金仓位中心。页面只读取已持久化的账户回放、场内/场外持仓回放、策略决策和真实行情缓存元数据，不重新回放 TradeLog、不重新估值、不联网、不写数据库，并以 2 秒固定间隔重读同一只读快照。详细边界见 `docs/TASK_CAPITAL_POSITION_020.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```

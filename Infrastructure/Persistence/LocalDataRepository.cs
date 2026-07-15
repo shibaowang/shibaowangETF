@@ -1471,6 +1471,31 @@ public sealed class LocalDataRepository : IAlertDeliveryStore, IChartIntradayCac
             ? TencentIntradayParser.ParsePoints(payload)
             : EastMoneyIntradayParser.ParsePoints(payload);
 
+    public CapitalPositionReadModel ReadCapitalPositionReadModel()
+    {
+        using var connection = _database.OpenConnection();
+        using (var queryOnlyCommand = connection.CreateCommand())
+        {
+            queryOnlyCommand.CommandText = "PRAGMA query_only = ON;";
+            queryOnlyCommand.ExecuteNonQuery();
+        }
+
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var model = new CapitalPositionReadModel
+        {
+            Account = ReadCapitalPositionAccount(connection, transaction),
+            Positions = ReadCapitalPositionPositions(connection, transaction),
+            OtcPositions = ReadCapitalPositionOtcPositions(connection, transaction),
+            Strategies = ReadCapitalPositionStrategies(connection, transaction),
+            OtcChannels = ReadCapitalPositionOtcChannels(connection, transaction),
+            Quotes = ReadCapitalPositionQuotes(connection, transaction),
+            LatestDecision = ReadCapitalPositionLatestDecision(connection, transaction),
+            ReadAt = DateTimeOffset.Now
+        };
+        transaction.Commit();
+        return model;
+    }
+
     public AccountReplayStateRecord? ReadLatestAccountReplayState()
     {
         using var connection = _database.OpenConnection();
@@ -1703,6 +1728,230 @@ public sealed class LocalDataRepository : IAlertDeliveryStore, IChartIntradayCac
 
         records.Reverse();
         return records;
+    }
+
+    private static AccountReplayStateRecord? ReadCapitalPositionAccount(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, calculated_at, replay_status, replay_error, cash_balance, principal,
+                   total_position_cost, known_market_value, total_assets, total_realized_pnl,
+                   total_unrealized_pnl, total_pnl, total_return_rate, cash_ratio, position_ratio,
+                   base_position_ratio, market_value_complete, last_trade_log_id
+            FROM account_replay_state
+            ORDER BY calculated_at DESC, id DESC
+            LIMIT 1;
+            """);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadAccountReplayState(reader) : null;
+    }
+
+    private static IReadOnlyList<PositionReplayStateRecord> ReadCapitalPositionPositions(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, calculated_at, strategy_code, actual_code, source, quantity, cost_amount,
+                   average_cost, adj_factor, today_buy_quantity, today_buy_amount, market_price,
+                   market_value, daily_pnl, realized_pnl, unrealized_pnl, total_pnl, return_rate,
+                   quote_status
+            FROM position_replay_state
+            ORDER BY strategy_code COLLATE NOCASE, actual_code COLLATE NOCASE, id;
+            """);
+        using var reader = command.ExecuteReader();
+        var records = new List<PositionReplayStateRecord>();
+        while (reader.Read())
+        {
+            records.Add(new PositionReplayStateRecord
+            {
+                Id = reader.GetInt64(0),
+                CalculatedAt = reader.GetString(1),
+                StrategyCode = reader.GetString(2),
+                ActualCode = reader.GetString(3),
+                Source = reader.GetString(4),
+                Quantity = reader.GetDouble(5),
+                CostAmount = reader.GetDouble(6),
+                AverageCost = reader.GetDouble(7),
+                AdjFactor = reader.GetDouble(8),
+                TodayBuyQuantity = reader.GetDouble(9),
+                TodayBuyAmount = reader.GetDouble(10),
+                MarketPrice = OptionalDouble(reader, 11),
+                MarketValue = OptionalDouble(reader, 12),
+                DailyPnl = OptionalDouble(reader, 13),
+                RealizedPnl = reader.GetDouble(14),
+                UnrealizedPnl = OptionalDouble(reader, 15),
+                TotalPnl = OptionalDouble(reader, 16),
+                ReturnRate = OptionalDouble(reader, 17),
+                QuoteStatus = reader.GetString(18)
+            });
+        }
+
+        return records;
+    }
+
+    private static IReadOnlyList<OtcPositionReplayStateRecord> ReadCapitalPositionOtcPositions(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, calculated_at, strategy_code, actual_code, quantity, cost_amount, average_cost,
+                   nav, market_value, daily_pnl, unrealized_pnl, return_rate, quote_status
+            FROM otc_position_replay_state
+            ORDER BY strategy_code COLLATE NOCASE, actual_code COLLATE NOCASE, id;
+            """);
+        using var reader = command.ExecuteReader();
+        var records = new List<OtcPositionReplayStateRecord>();
+        while (reader.Read())
+        {
+            records.Add(new OtcPositionReplayStateRecord
+            {
+                Id = reader.GetInt64(0),
+                CalculatedAt = reader.GetString(1),
+                StrategyCode = reader.GetString(2),
+                ActualCode = reader.GetString(3),
+                Quantity = reader.GetDouble(4),
+                CostAmount = reader.GetDouble(5),
+                AverageCost = reader.GetDouble(6),
+                Nav = OptionalDouble(reader, 7),
+                MarketValue = OptionalDouble(reader, 8),
+                DailyPnl = OptionalDouble(reader, 9),
+                UnrealizedPnl = OptionalDouble(reader, 10),
+                ReturnRate = OptionalDouble(reader, 11),
+                QuoteStatus = reader.GetString(12)
+            });
+        }
+
+        return records;
+    }
+
+    private static IReadOnlyList<StrategyConfigRecord> ReadCapitalPositionStrategies(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, code, name, index_sec_id, etf_high, index_high, extra_price, take_profit_price,
+                   sell_ratio, add_premium_limit, t1_weight, t2_weight, t3_weight,
+                   t4_weight, t5_weight, t6_weight, adj_factor, enabled, created_at, updated_at
+            FROM strategy_config
+            ORDER BY code COLLATE NOCASE, id;
+            """);
+        using var reader = command.ExecuteReader();
+        var records = new List<StrategyConfigRecord>();
+        while (reader.Read())
+        {
+            records.Add(new StrategyConfigRecord
+            {
+                Id = reader.GetInt64(0),
+                Code = reader.GetString(1),
+                Name = reader.GetString(2),
+                IndexSecId = OptionalString(reader, 3),
+                EtfHigh = OptionalDouble(reader, 4),
+                IndexHigh = OptionalDouble(reader, 5),
+                ExtraPrice = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 6)),
+                TakeProfitPrice = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 7)),
+                SellRatio = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 8)),
+                AddPremiumLimit = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 9)),
+                T1Weight = OptionalDouble(reader, 10),
+                T2Weight = OptionalDouble(reader, 11),
+                T3Weight = OptionalDouble(reader, 12),
+                T4Weight = OptionalDouble(reader, 13),
+                T5Weight = OptionalDouble(reader, 14),
+                T6Weight = OptionalDouble(reader, 15),
+                AdjFactor = OptionalDouble(reader, 16),
+                Enabled = reader.GetInt64(17) != 0,
+                CreatedAt = reader.GetString(18),
+                UpdatedAt = reader.GetString(19)
+            });
+        }
+
+        return records;
+    }
+
+    private static IReadOnlyList<OtcChannelRecord> ReadCapitalPositionOtcChannels(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, strategy_code, otc_code, class_type, enabled, daily_limit, priority, min_buy,
+                   memo, created_at, updated_at
+            FROM otc_channel
+            ORDER BY strategy_code COLLATE NOCASE, priority, otc_code COLLATE NOCASE, id;
+            """);
+        using var reader = command.ExecuteReader();
+        var records = new List<OtcChannelRecord>();
+        while (reader.Read())
+        {
+            records.Add(new OtcChannelRecord
+            {
+                Id = reader.GetInt64(0),
+                StrategyCode = reader.GetString(1),
+                OtcCode = reader.GetString(2),
+                ClassType = reader.GetString(3),
+                Enabled = reader.GetInt64(4) != 0,
+                DailyLimit = reader.GetDouble(5),
+                Priority = reader.GetInt32(6),
+                MinBuy = reader.GetDouble(7),
+                Memo = OptionalString(reader, 8),
+                CreatedAt = reader.GetString(9),
+                UpdatedAt = reader.GetString(10)
+            });
+        }
+
+        return records;
+    }
+
+    private static IReadOnlyList<MarketQuoteRecord> ReadCapitalPositionQuotes(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, symbol, display_name, market_type, source, price, last_close, change_value,
+                   change_percent, high_value, low_value, open_value, volume, amount, iopv,
+                   quote_time, received_at, raw_code, raw_payload
+            FROM market_quote_cache
+            ORDER BY market_type, symbol, source, id;
+            """);
+        using var reader = command.ExecuteReader();
+        var records = new List<MarketQuoteRecord>();
+        while (reader.Read())
+        {
+            records.Add(ReadMarketQuote(reader));
+        }
+
+        return records;
+    }
+
+    private static StrategyDecisionStateRecord? ReadCapitalPositionLatestDecision(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCapitalPositionReadCommand(connection, transaction, """
+            SELECT id, calculated_at, strategy_code, name, action_instruction, strategy_status,
+                   preferred_source, target_tier, target_amount, available_cash, suggested_price,
+                   premium, return_rate, etf_drawdown, index_drawdown, base_mode, base_ratio,
+                   base_fixed_amount, base_target_amount, base_current_cost, base_completion_rate,
+                   base_gap_amount, base_target_capped, real_sniper_pool, tier_total_parts,
+                   tier_cumulative_target, tier_executed_amount, tier_remain_amount,
+                   prerequisite_status, prerequisite_message, is_actionable
+            FROM strategy_decision_state
+            WHERE real_sniper_pool IS NOT NULL OR base_completion_rate IS NOT NULL
+            ORDER BY calculated_at DESC, id DESC
+            LIMIT 1;
+            """);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadStrategyDecisionState(reader) : null;
+    }
+
+    private static SqliteCommand CreateCapitalPositionReadCommand(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string commandText)
+    {
+        SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = commandText;
+        return command;
     }
 
     private static AccountReplayStateRecord ReadAccountReplayState(SqliteDataReader reader)

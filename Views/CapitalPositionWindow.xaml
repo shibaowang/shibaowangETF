@@ -1,0 +1,466 @@
+<Window x:Class="CrossETF.Terminal.UiShell.Reference.Views.CapitalPositionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="资金仓位中心"
+        Width="1500"
+        Height="860"
+        MinWidth="1180"
+        MinHeight="680"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="CanResize"
+        Background="#050B14"
+        FontFamily="Microsoft YaHei UI"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Loaded="CapitalPositionWindow_Loaded"
+        Closed="CapitalPositionWindow_Closed">
+    <Window.Resources>
+        <SolidColorBrush x:Key="CapitalTextBrush" Color="#EAF6FF" />
+        <SolidColorBrush x:Key="CapitalMutedBrush" Color="#91A9BB" />
+        <SolidColorBrush x:Key="CapitalPanelBrush" Color="#071B2A" />
+        <SolidColorBrush x:Key="CapitalPanelAltBrush" Color="#082235" />
+        <SolidColorBrush x:Key="CapitalHeaderBrush" Color="#0B2B42" />
+        <SolidColorBrush x:Key="CapitalBorderBrush" Color="#1F4E68" />
+        <SolidColorBrush x:Key="CapitalSelectedBrush" Color="#123E5A" />
+        <SolidColorBrush x:Key="CapitalUpBrush" Color="#FF4D57" />
+        <SolidColorBrush x:Key="CapitalDownBrush" Color="#84CC16" />
+        <SolidColorBrush x:Key="CapitalNormalBrush" Color="#63D95F" />
+        <SolidColorBrush x:Key="CapitalWarningBrush" Color="#F5A623" />
+        <SolidColorBrush x:Key="CapitalErrorBrush" Color="#FF5D68" />
+        <SolidColorBrush x:Key="CapitalFooterBrush" Color="#AAC1D0" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource CapitalTextBrush}" />
+        </Style>
+
+        <Style x:Key="CapitalScrollThumbStyle" TargetType="Thumb">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="ThumbBorder" Margin="2" Background="#355C74" CornerRadius="4" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="#4A7892" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="#5A91AD" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CapitalScrollPageButtonStyle" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="{TemplateBinding Background}" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <ControlTemplate x:Key="CapitalVerticalScrollTemplate" TargetType="ScrollBar">
+            <Grid Width="14" Background="#071724">
+                <Track x:Name="PART_Track" IsDirectionReversed="True">
+                    <Track.DecreaseRepeatButton>
+                        <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Style="{StaticResource CapitalScrollPageButtonStyle}" />
+                    </Track.DecreaseRepeatButton>
+                    <Track.Thumb>
+                        <Thumb MinHeight="28" Style="{StaticResource CapitalScrollThumbStyle}" />
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton>
+                        <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Style="{StaticResource CapitalScrollPageButtonStyle}" />
+                    </Track.IncreaseRepeatButton>
+                </Track>
+            </Grid>
+        </ControlTemplate>
+
+        <ControlTemplate x:Key="CapitalHorizontalScrollTemplate" TargetType="ScrollBar">
+            <Grid Height="14" Background="#071724">
+                <Track x:Name="PART_Track" Orientation="Horizontal">
+                    <Track.DecreaseRepeatButton>
+                        <RepeatButton Command="{x:Static ScrollBar.PageLeftCommand}" Style="{StaticResource CapitalScrollPageButtonStyle}" />
+                    </Track.DecreaseRepeatButton>
+                    <Track.Thumb>
+                        <Thumb MinWidth="28" Style="{StaticResource CapitalScrollThumbStyle}" />
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton>
+                        <RepeatButton Command="{x:Static ScrollBar.PageRightCommand}" Style="{StaticResource CapitalScrollPageButtonStyle}" />
+                    </Track.IncreaseRepeatButton>
+                </Track>
+            </Grid>
+        </ControlTemplate>
+
+        <Style x:Key="CapitalScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="MinWidth" Value="14" />
+            <Setter Property="Background" Value="#071724" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template" Value="{StaticResource CapitalVerticalScrollTemplate}" />
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto" />
+                    <Setter Property="MinWidth" Value="0" />
+                    <Setter Property="Height" Value="14" />
+                    <Setter Property="MinHeight" Value="14" />
+                    <Setter Property="Template" Value="{StaticResource CapitalHorizontalScrollTemplate}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CapitalDataGridStyle" TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource CapitalPanelBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource CapitalTextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource CapitalBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalGridLinesBrush" Value="#12384F" />
+            <Setter Property="VerticalGridLinesBrush" Value="#12384F" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+            <Setter Property="RowBackground" Value="{StaticResource CapitalPanelBrush}" />
+            <Setter Property="AlternatingRowBackground" Value="{StaticResource CapitalPanelAltBrush}" />
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="CanUserAddRows" Value="False" />
+            <Setter Property="CanUserDeleteRows" Value="False" />
+            <Setter Property="CanUserReorderColumns" Value="False" />
+            <Setter Property="CanUserResizeRows" Value="False" />
+            <Setter Property="AutoGenerateColumns" Value="False" />
+            <Setter Property="SelectionMode" Value="Single" />
+            <Setter Property="SelectionUnit" Value="FullRow" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="RowHeight" Value="26" />
+            <Setter Property="MinRowHeight" Value="25" />
+            <Setter Property="ColumnHeaderHeight" Value="32" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{StaticResource CapitalHeaderBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource CapitalTextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource CapitalBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,1,1" />
+            <Setter Property="Padding" Value="7,0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style TargetType="DataGridCell">
+            <Setter Property="Foreground" Value="{StaticResource CapitalTextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#12384F" />
+            <Setter Property="BorderThickness" Value="0,0,1,0" />
+            <Setter Property="Padding" Value="7,2" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource CapitalSelectedBrush}" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CapitalRightTextStyle" TargetType="TextBlock">
+            <Setter Property="TextAlignment" Value="Right" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="CapitalCenterTextStyle" TargetType="TextBlock">
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="CapitalCacheStatusStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource CapitalMutedBrush}" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CacheStatus}" Value="正常">
+                    <Setter Property="Foreground" Value="{StaticResource CapitalNormalBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CacheStatus}" Value="延迟">
+                    <Setter Property="Foreground" Value="{StaticResource CapitalWarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CacheStatus}" Value="过期">
+                    <Setter Property="Foreground" Value="{StaticResource CapitalErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CacheStatus}" Value="时间无效">
+                    <Setter Property="Foreground" Value="{StaticResource CapitalErrorBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CapitalProgressStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="9" />
+            <Setter Property="Maximum" Value="1" />
+            <Setter Property="Background" Value="#10283A" />
+            <Setter Property="Foreground" Value="#4F8FC9" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="4" />
+                            <Border x:Name="PART_Indicator"
+                                    HorizontalAlignment="Left"
+                                    Background="{TemplateBinding Foreground}"
+                                    CornerRadius="4" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CapitalCashProgressStyle" TargetType="ProgressBar" BasedOn="{StaticResource CapitalProgressStyle}">
+            <Setter Property="Foreground" Value="#4F8FC9" />
+        </Style>
+
+        <Style x:Key="CapitalEtfProgressStyle" TargetType="ProgressBar" BasedOn="{StaticResource CapitalProgressStyle}">
+            <Setter Property="Foreground" Value="#27A8C4" />
+        </Style>
+
+        <Style x:Key="CapitalOtcProgressStyle" TargetType="ProgressBar" BasedOn="{StaticResource CapitalProgressStyle}">
+            <Setter Property="Foreground" Value="#2A9D8F" />
+        </Style>
+
+        <Style x:Key="CapitalSummaryTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{StaticResource CapitalMutedBrush}" />
+        </Style>
+
+        <Style x:Key="CapitalSummaryValueStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource CapitalTextBrush}" />
+            <Setter Property="FontSize" Value="19" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,3,0,0" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14" Background="#050B14" ClipToBounds="True">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="7" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="1.25*" MinHeight="125" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="*" MinHeight="115" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="*" MinHeight="115" />
+            <RowDefinition Height="7" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="资金仓位中心" FontSize="25" FontWeight="SemiBold" />
+                <TextBlock Margin="0,4,0,0"
+                           Text="账户回放与持仓回放的纯本地只读视图"
+                           Foreground="{StaticResource CapitalMutedBrush}"
+                           FontSize="13" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                <TextBlock x:Name="LocalReadStatusText" HorizontalAlignment="Right" Foreground="{StaticResource CapitalMutedBrush}" Text="等待读取本地状态" />
+                <TextBlock x:Name="ReadAtText" Margin="0,3,0,0" HorizontalAlignment="Right" Foreground="{StaticResource CapitalMutedBrush}" />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" Background="#071724" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="11,7">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="账户状态" Foreground="{StaticResource CapitalMutedBrush}" />
+                <TextBlock Grid.Column="1" Text="·" Foreground="{StaticResource CapitalMutedBrush}" />
+                <TextBlock Grid.Column="2" Text="{Binding AccountStatusText}" Foreground="{Binding AccountStatusColor}" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="3" Text="·" Foreground="{StaticResource CapitalMutedBrush}" />
+                <TextBlock Grid.Column="4" Text="{Binding CalculatedAtText, StringFormat=回放计算时间：{0}}" Foreground="{StaticResource CapitalMutedBrush}" />
+            </Grid>
+        </Border>
+
+        <UniformGrid Grid.Row="4" Rows="2" Columns="6">
+            <Border Margin="0,0,7,7" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="总资产" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.TotalAssetsText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,7" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="可用现金" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.CashBalanceText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,7" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="累计本金" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.PrincipalText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,7" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="持仓总市值" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.KnownMarketValueText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,7" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="场内 ETF 市值" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.EtfMarketValueText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,0,7" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="场外基金市值" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.OtcMarketValueText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,0" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="持仓浮动盈亏" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.TotalUnrealizedPnlText}" Foreground="{Binding Summary.TotalUnrealizedPnlColor}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,0" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="已实现盈亏" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.TotalRealizedPnlText}" Foreground="{Binding Summary.TotalRealizedPnlColor}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,0" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="资金使用率" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.PositionRatioText}" Style="{StaticResource CapitalSummaryValueStyle}" Margin="0,2,0,0" /><ProgressBar Margin="0,3,0,0" Height="5" Value="{Binding Summary.PositionRatioProgress}" Style="{StaticResource CapitalProgressStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,0" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="狙击资金池" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.RealSniperPoolText}" Style="{StaticResource CapitalSummaryValueStyle}" /></StackPanel>
+            </Border>
+            <Border Margin="0,0,7,0" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7">
+                <StackPanel><TextBlock Text="底仓完成度" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.BaseCompletionRateText}" Style="{StaticResource CapitalSummaryValueStyle}" Margin="0,2,0,0" /><ProgressBar Margin="0,3,0,0" Height="5" Value="{Binding Summary.BaseCompletionProgress}" Style="{StaticResource CapitalProgressStyle}" /></StackPanel>
+            </Border>
+            <Border Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,7" ToolTip="{Binding ReplayError}">
+                <StackPanel><TextBlock Text="回放/估值状态" Style="{StaticResource CapitalSummaryTitleStyle}" /><TextBlock Text="{Binding Summary.ReplayStatusText}" Foreground="{Binding Summary.ReplayStatusColor}" TextTrimming="CharacterEllipsis" FontSize="15" FontWeight="SemiBold" Margin="0,5,0,0" /></StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <Border Grid.Row="6" MinHeight="125" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="0.9*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="1.6*" />
+                </Grid.ColumnDefinitions>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="仓位结构" FontSize="15" FontWeight="SemiBold" />
+                    <Grid Grid.Row="1" Margin="0,5,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="86" /><ColumnDefinition Width="*" /><ColumnDefinition Width="70" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="现金占比" VerticalAlignment="Center" Foreground="{StaticResource CapitalMutedBrush}" />
+                        <ProgressBar Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Value="{Binding Summary.CashRatioProgress}" Style="{StaticResource CapitalCashProgressStyle}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Summary.CashRatioText}" Foreground="{Binding Summary.CashBalanceColor}" FontSize="13" TextAlignment="Right" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="86" /><ColumnDefinition Width="*" /><ColumnDefinition Width="70" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="场内 ETF" VerticalAlignment="Center" Foreground="{StaticResource CapitalMutedBrush}" />
+                        <ProgressBar Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Value="{Binding Summary.EtfRatioProgress}" Style="{StaticResource CapitalEtfProgressStyle}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Summary.EtfRatioText}" FontSize="13" TextAlignment="Right" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid Grid.Row="3">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="86" /><ColumnDefinition Width="*" /><ColumnDefinition Width="70" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="场外基金" VerticalAlignment="Center" Foreground="{StaticResource CapitalMutedBrush}" />
+                        <ProgressBar Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Value="{Binding Summary.OtcRatioProgress}" Style="{StaticResource CapitalOtcProgressStyle}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Summary.OtcRatioText}" FontSize="13" TextAlignment="Right" VerticalAlignment="Center" />
+                    </Grid>
+                </Grid>
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <TextBlock Text="策略市值占比" FontSize="15" FontWeight="SemiBold" />
+                    <DataGrid x:Name="StrategyAllocationGrid" Grid.Row="1" Margin="0,5,0,0" Style="{StaticResource CapitalDataGridStyle}" ItemsSource="{Binding StrategyRows}" FontSize="13" RowHeight="26" ColumnHeaderHeight="31">
+                        <DataGrid.Resources><Style TargetType="ScrollBar" BasedOn="{StaticResource CapitalScrollBarStyle}" /></DataGrid.Resources>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="策略代码" Binding="{Binding StrategyCode}" Width="95" />
+                            <DataGridTextColumn Header="策略名称" Binding="{Binding StrategyName}" Width="*" MinWidth="180" MaxWidth="300" />
+                            <DataGridTextColumn Header="ETF市值" Binding="{Binding EtfMarketValueText}" Width="110" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="OTC市值" Binding="{Binding OtcMarketValueText}" Width="110" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="合计市值" Binding="{Binding TotalMarketValueText}" Width="110" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTemplateColumn Header="总资产占比" Width="100">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <ProgressBar Height="5" Margin="0,0,0,2" VerticalAlignment="Bottom" Value="{Binding AssetRatioProgress}" Style="{StaticResource CapitalProgressStyle}" />
+                                            <TextBlock Text="{Binding AssetRatioText}" TextAlignment="Right" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="8" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="31" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <TextBlock Text="场内 ETF 持仓" Margin="10,0" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold" />
+                <Grid Grid.Row="1">
+                    <DataGrid x:Name="EtfPositionGrid" Style="{StaticResource CapitalDataGridStyle}" ItemsSource="{Binding EtfRows}" FrozenColumnCount="3">
+                        <DataGrid.Resources><Style TargetType="ScrollBar" BasedOn="{StaticResource CapitalScrollBarStyle}" /></DataGrid.Resources>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="策略代码" Binding="{Binding StrategyCode}" Width="95" />
+                            <DataGridTemplateColumn Header="ETF名称" Width="240"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding EtfName}" ToolTip="{Binding EtfName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTextColumn Header="实际代码" Binding="{Binding ActualCode}" Width="100" />
+                            <DataGridTextColumn Header="持仓数量" Binding="{Binding QuantityText}" Width="105" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="综合成本" Binding="{Binding AverageCostText}" Width="100" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="最新价格" Binding="{Binding MarketPriceText}" Width="100" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="持仓市值" Binding="{Binding MarketValueText}" Width="110" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTemplateColumn Header="浮动盈亏" Width="105"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding UnrealizedPnlText}" Foreground="{Binding UnrealizedPnlColor}" Style="{StaticResource CapitalRightTextStyle}" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTextColumn Header="盈亏比例" Binding="{Binding ReturnRateText}" Width="90" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="资产占比" Binding="{Binding AssetRatioText}" Width="90" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="行情来源" Binding="{Binding QuoteSourceText}" Width="130" />
+                            <DataGridTextColumn Header="行情时间" Binding="{Binding QuoteTimeText}" Width="160" />
+                            <DataGridTextColumn Header="本地接收时间" Binding="{Binding ReceivedAtText}" Width="160" />
+                            <DataGridTemplateColumn Header="缓存状态" Width="90"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding CacheStatus}" ToolTip="{Binding CacheToolTip}" Style="{StaticResource CapitalCacheStatusStyle}" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock x:Name="EtfEmptyText" Text="暂无场内 ETF 持仓" Foreground="{StaticResource CapitalMutedBrush}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="10" Background="{StaticResource CapitalPanelBrush}" BorderBrush="{StaticResource CapitalBorderBrush}" BorderThickness="1" CornerRadius="6">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="31" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <TextBlock Text="场外基金持仓" Margin="10,0" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold" />
+                <Grid Grid.Row="1">
+                    <DataGrid x:Name="OtcPositionGrid" Style="{StaticResource CapitalDataGridStyle}" ItemsSource="{Binding OtcRows}" FrozenColumnCount="3">
+                        <DataGrid.Resources><Style TargetType="ScrollBar" BasedOn="{StaticResource CapitalScrollBarStyle}" /></DataGrid.Resources>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="策略代码" Binding="{Binding StrategyCode}" Width="95" />
+                            <DataGridTextColumn Header="基金代码" Binding="{Binding FundCode}" Width="95" />
+                            <DataGridTemplateColumn Header="基金名称" Width="270"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding FundName}" ToolTip="{Binding FundName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTextColumn Header="持有份额" Binding="{Binding QuantityText}" Width="105" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="持仓成本" Binding="{Binding CostAmountText}" Width="110" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="单位成本" Binding="{Binding AverageCostText}" Width="100" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="最新净值" Binding="{Binding NavText}" Width="100" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="持仓市值" Binding="{Binding MarketValueText}" Width="110" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTemplateColumn Header="浮动盈亏" Width="105"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding UnrealizedPnlText}" Foreground="{Binding UnrealizedPnlColor}" Style="{StaticResource CapitalRightTextStyle}" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTextColumn Header="盈亏比例" Binding="{Binding ReturnRateText}" Width="90" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="资产占比" Binding="{Binding AssetRatioText}" Width="90" ElementStyle="{StaticResource CapitalRightTextStyle}" />
+                            <DataGridTextColumn Header="通道优先级" Binding="{Binding ChannelPriorityText}" Width="90" ElementStyle="{StaticResource CapitalCenterTextStyle}" />
+                            <DataGridTextColumn Header="净值来源" Binding="{Binding QuoteSourceText}" Width="130" />
+                            <DataGridTextColumn Header="净值时间" Binding="{Binding QuoteTimeText}" Width="160" />
+                            <DataGridTemplateColumn Header="缓存状态" Width="90"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding CacheStatus}" ToolTip="{Binding CacheToolTip}" Style="{StaticResource CapitalCacheStatusStyle}" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock x:Name="OtcEmptyText" Text="暂无场外基金持仓" Foreground="{StaticResource CapitalMutedBrush}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="12" MinHeight="28">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding DataSourceExplanation}" ToolTip="{Binding DataSourceExplanation}" Foreground="{StaticResource CapitalFooterBrush}" FontSize="12.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding ReplayErrorSummary, StringFormat=回放说明：{0}}" ToolTip="{Binding ReplayError}" Foreground="{StaticResource CapitalFooterBrush}" FontSize="12.5" Margin="18,0,0,0" TextAlignment="Right" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
+</Window>

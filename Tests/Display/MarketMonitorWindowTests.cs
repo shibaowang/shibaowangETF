@@ -51,10 +51,10 @@ public sealed class MarketMonitorWindowTests
     {
         string[] fragments =
         {
-            "<Version>8.7.0</Version>",
-            "<AssemblyVersion>8.7.0.0</AssemblyVersion>",
-            "<FileVersion>8.7.0.0</FileVersion>",
-            "<InformationalVersion>8.7.0</InformationalVersion>"
+            "<Version>8.8.0</Version>",
+            "<AssemblyVersion>8.8.0.0</AssemblyVersion>",
+            "<FileVersion>8.8.0.0</FileVersion>",
+            "<InformationalVersion>8.8.0</InformationalVersion>"
         };
         return fragments.Select(fragment => new object[] { fragment });
     }
@@ -542,7 +542,7 @@ public sealed class MarketMonitorWindowTests
         string settings = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
 
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
-        Assert.Equal("V8.7.0", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("V8.8.0", MainWindow.ResolveDisplayVersion());
         Assert.Contains("AssemblyInformationalVersionAttribute", main, StringComparison.Ordinal);
         Assert.Contains("(\"当前版本\", MainWindow.ResolveDisplayVersion())", settings, StringComparison.Ordinal);
     }

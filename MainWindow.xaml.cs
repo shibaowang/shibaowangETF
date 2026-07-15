@@ -111,6 +111,7 @@ public partial class MainWindow : Window
     private bool _orderDraftQueued;
     private bool _alertDeliveryQueued;
     private MarketMonitorWindow? _marketMonitorWindow;
+    private CapitalPositionWindow? _capitalPositionWindow;
     private RiskCenterWindow? _riskCenterWindow;
     private readonly Dictionary<string, DateTimeOffset> _strategyRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _orderRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
@@ -1545,9 +1546,13 @@ public partial class MainWindow : Window
     public static bool IsMarketMonitorNavigation(string navigationName)
         => string.Equals(navigationName, "行情监控", StringComparison.Ordinal);
 
+    public static bool IsCapitalPositionNavigation(string navigationName)
+        => string.Equals(navigationName, "资金仓位", StringComparison.Ordinal);
+
     public static bool IsActionableNavigation(string navigationName)
         => ResolveManualEntryScopeForNavigation(navigationName) is not null
            || IsMarketMonitorNavigation(navigationName)
+           || IsCapitalPositionNavigation(navigationName)
            || IsRiskCenterNavigation(navigationName);
 
     public static string BuildVersionDisplayText()
@@ -1597,6 +1602,12 @@ public partial class MainWindow : Window
         if (IsRiskCenterNavigation(navigationName))
         {
             OpenRiskCenter();
+            return;
+        }
+
+        if (IsCapitalPositionNavigation(navigationName))
+        {
+            OpenCapitalPosition();
             return;
         }
 
@@ -1745,6 +1756,27 @@ public partial class MainWindow : Window
         border.AppendChild(presenter);
         template.VisualTree = border;
         return template;
+    }
+
+    private void OpenCapitalPosition()
+    {
+        if (_capitalPositionWindow is { IsVisible: true })
+        {
+            if (_capitalPositionWindow.WindowState == WindowState.Minimized)
+            {
+                _capitalPositionWindow.WindowState = WindowState.Normal;
+            }
+
+            _capitalPositionWindow.Activate();
+            return;
+        }
+
+        _capitalPositionWindow = new CapitalPositionWindow(_repository)
+        {
+            Owner = this
+        };
+        _capitalPositionWindow.Closed += (_, _) => _capitalPositionWindow = null;
+        _capitalPositionWindow.Show();
     }
 
     private void DrawSparklines()
