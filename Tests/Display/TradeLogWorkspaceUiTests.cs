@@ -1,4 +1,10 @@
+using CrossETF.Terminal.UiShell.Reference.Core.Models;
+using CrossETF.Terminal.UiShell.Reference.Infrastructure.Persistence;
 using CrossETF.Terminal.UiShell.Reference.Views;
+using System.Collections.ObjectModel;
+using System.Reflection;
+using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace CrossETF.Terminal.UiShell.Reference.Tests.Display;
 
@@ -320,7 +326,7 @@ public sealed class TradeLogWorkspaceUiTests
     {
         string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
         string state = Slice(code, "private void TradeLogs_CollectionChanged", "private static DataGrid CreateDataGrid");
-        string save = Slice(code, "private async void SaveTradeLogs()", "private TradeLogSaveResult SaveTradeLogsCore");
+        string save = Slice(code, "private async void SaveTradeLogs()", "private TradeLogAtomicSaveResult SaveTradeLogsCore");
         string edit = Slice(code, "private void TradeLogGrid_CellEditEnding", "private void TradeLogGrid_CurrentCellChanged");
         string delete = Slice(code, "private void DeleteSelectedTradeLog()", "private static void BeginEdit");
         string load = Slice(code, "private void LoadData()", "private void LoadAccountFields");
@@ -353,20 +359,167 @@ public sealed class TradeLogWorkspaceUiTests
     public void SavePipeline_StillCommitsNormalizesPersistsReplaysAndSerializesSaves()
     {
         string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
-        string save = Slice(code, "private async void SaveTradeLogs()", "private TradeLogSaveResult SaveTradeLogsCore");
-        string core = Slice(code, "private TradeLogSaveResult SaveTradeLogsCore", "private void TradeLogGrid_CellEditEnding");
+        string save = Slice(code, "private async void SaveTradeLogs()", "private TradeLogAtomicSaveResult SaveTradeLogsCore");
+        string core = Slice(code, "private TradeLogAtomicSaveResult SaveTradeLogsCore", "private void TradeLogGrid_CellEditEnding");
 
         Assert.Contains("if (_isSavingTradeLogs)", save, StringComparison.Ordinal);
         Assert.Contains("SafeCommitTradeLogGridEdits", save, StringComparison.Ordinal);
         Assert.Contains("_tradeLogSaveButton.IsEnabled = false", save, StringComparison.Ordinal);
-        Assert.Contains("_tradeLogSaveButton.IsEnabled = true", save, StringComparison.Ordinal);
+        Assert.Contains("_tradeLogSaveButton.IsEnabled = _pendingCommittedTradeLogUiSync is null", save, StringComparison.Ordinal);
         Assert.Contains("TradeLogLedgerNormalizer.AutoCalculateTradeAmounts", core, StringComparison.Ordinal);
         Assert.Contains("TryNormalizeLedgerFieldsBeforeSave", core, StringComparison.Ordinal);
         Assert.Contains("ValidateTradeLogForSave", core, StringComparison.Ordinal);
-        Assert.Contains("_repository.SaveTradeLogsSnapshot", core, StringComparison.Ordinal);
-        Assert.Contains("ReplayAccountFromTradeLogs", core, StringComparison.Ordinal);
+        Assert.Contains("_repository.SaveTradeLogsAndReplayAtomically", core, StringComparison.Ordinal);
+        Assert.DoesNotContain("SaveTradeLogsSnapshot", core, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReplayAccountFromTradeLogs", code, StringComparison.Ordinal);
         Assert.Contains("AppExceptionLogger.WriteRuntime", save, StringComparison.Ordinal);
         Assert.Contains("TryWriteRuntimeLog", save, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SavePipeline_DistinguishesRollbackFromCommittedUiSyncAndNeverResubmitsFacts()
+    {
+        string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
+        string save = Slice(code, "private async void SaveTradeLogs()", "private TradeLogAtomicSaveResult SaveTradeLogsCore");
+
+        Assert.Contains("if (_isSavingTradeLogs)", save, StringComparison.Ordinal);
+        Assert.Contains("_pendingCommittedTradeLogUiSync is not null", save, StringComparison.Ordinal);
+        Assert.Contains("TryCompleteCommittedTradeLogUiSync", save, StringComparison.Ordinal);
+        Assert.Contains("保存未完成，数据库已保持保存前状态。可以检查输入后重新保存。", save, StringComparison.Ordinal);
+        Assert.Contains("交易事实和账户状态已经保存成功，但界面同步失败。请关闭并重新打开交易日志窗口，不要再次点击保存。", code, StringComparison.Ordinal);
+        Assert.Contains("_pendingCommittedTradeLogUiSync = new CommittedTradeLogUiSync", save, StringComparison.Ordinal);
+        Assert.DoesNotContain("SaveTradeLogsAndReplayAtomically", Slice(save, "if (_pendingCommittedTradeLogUiSync is not null)", "if (!SafeCommitTradeLogGridEdits"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CommittedIdentityBackfill_UsesSnapshotIndexAndDoesNotMatchByContent()
+    {
+        var first = new TradeLogRecord();
+        var second = new TradeLogRecord();
+        PersistedTradeLogIdentity[] identities =
+        {
+            new(1, 0, 102),
+            new(0, 0, 101)
+        };
+
+        ManualDataEntryWindow.ApplyPersistedTradeLogIdentities(new[] { first, second }, identities);
+        Assert.Equal(101, first.Id);
+        Assert.Equal(102, second.Id);
+    }
+
+    [Fact]
+    public void RapidDoubleSave_OnIsolatedSta_InsertsExactlyOneTradeLog()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cross-etf-trade-log-double-save", Guid.NewGuid().ToString("N"));
+        string databasePath = Path.Combine(root, "window.db");
+        Exception? failure = null;
+        int savedCount = -1;
+        var thread = new Thread(() =>
+        {
+            ManualDataEntryWindow? window = null;
+            try
+            {
+                Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+                var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+                window = new ManualDataEntryWindow(repository, databasePath, ManualEntryScope.TradeLog);
+                window.Show();
+                ObservableCollection<TradeLogRecord> records = GetPrivateField<ObservableCollection<TradeLogRecord>>(window, "_tradeLogs");
+                records.Add(ValidDeposit());
+
+                InvokePrivateSave(window);
+                InvokePrivateSave(window);
+                PumpDispatcherUntil(() => !GetPrivateField<bool>(window, "_isSavingTradeLogs"), TimeSpan.FromSeconds(15));
+                savedCount = repository.ReadTradeLogs().Count;
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                window?.Close();
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+
+        try
+        {
+            thread.Start();
+            Assert.True(thread.Join(TimeSpan.FromSeconds(20)), "STA double-save test timed out.");
+            Assert.Null(failure);
+            Assert.Equal(1, savedCount);
+        }
+        finally
+        {
+            TryDeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public void CommittedUiSyncFailure_DisablesSaveAndNeverSubmitsFactsAgain()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cross-etf-trade-log-ui-sync", Guid.NewGuid().ToString("N"));
+        string databasePath = Path.Combine(root, "window.db");
+        Exception? failure = null;
+        int savedCount = -1;
+        bool? saveEnabled = null;
+        bool pendingSync = false;
+        string? statusText = null;
+        var thread = new Thread(() =>
+        {
+            ManualDataEntryWindow? window = null;
+            try
+            {
+                Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+                var repository = new LocalDataRepository(new LocalDatabase(databasePath));
+                window = new ManualDataEntryWindow(repository, databasePath, ManualEntryScope.TradeLog);
+                window.Show();
+                TradeLogRecord record = ValidDeposit();
+                record.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(TradeLogRecord.Id))
+                    {
+                        throw new InvalidOperationException("injected committed UI synchronization failure");
+                    }
+                };
+                GetPrivateField<ObservableCollection<TradeLogRecord>>(window, "_tradeLogs").Add(record);
+
+                InvokePrivateSave(window);
+                PumpDispatcherUntil(() => !GetPrivateField<bool>(window, "_isSavingTradeLogs"), TimeSpan.FromSeconds(15));
+                InvokePrivateSave(window);
+
+                savedCount = repository.ReadTradeLogs().Count;
+                saveEnabled = GetPrivateField<Button>(window, "_tradeLogSaveButton").IsEnabled;
+                pendingSync = GetPrivateField<object?>(window, "_pendingCommittedTradeLogUiSync") is not null;
+                statusText = ((TextBlock)window.FindName("StatusText")).Text;
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                window?.Close();
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+
+        try
+        {
+            thread.Start();
+            Assert.True(thread.Join(TimeSpan.FromSeconds(20)), "STA committed UI sync test timed out.");
+            Assert.Null(failure);
+            Assert.Equal(1, savedCount);
+            Assert.False(saveEnabled);
+            Assert.True(pendingSync);
+            Assert.Equal("交易事实和账户状态已经保存成功，但界面同步失败。请关闭并重新打开交易日志窗口，不要再次点击保存。", statusText);
+        }
+        finally
+        {
+            TryDeleteDirectory(root);
+        }
     }
 
     [Fact]
@@ -390,10 +543,10 @@ public sealed class TradeLogWorkspaceUiTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.10.0</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.10.0.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.10.0.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.0</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.1</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.10.1.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.10.1.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.1</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 
@@ -463,5 +616,76 @@ public sealed class TradeLogWorkspaceUiTests
         }
 
         throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static TradeLogRecord ValidDeposit()
+        => new()
+        {
+            Time = "2026-07-16 09:00:00",
+            StrategyCode = "CASH",
+            Action = "入金",
+            Source = "CASH",
+            Amount = 100,
+            NetCashImpact = 100,
+            Principal = 100,
+            CashBalance = 100,
+            TotalAssets = 100
+        };
+
+    private static void InvokePrivateSave(ManualDataEntryWindow window)
+    {
+        MethodInfo method = typeof(ManualDataEntryWindow).GetMethod(
+            "SaveTradeLogs",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(ManualDataEntryWindow), "SaveTradeLogs");
+        method.Invoke(window, null);
+    }
+
+    private static T GetPrivateField<T>(ManualDataEntryWindow window, string fieldName)
+    {
+        FieldInfo field = typeof(ManualDataEntryWindow).GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(nameof(ManualDataEntryWindow), fieldName);
+        return (T)field.GetValue(window)!;
+    }
+
+    private static void PumpDispatcherUntil(Func<bool> condition, TimeSpan timeout)
+    {
+        DateTime deadline = DateTime.UtcNow + timeout;
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException("Dispatcher condition was not reached.");
+            }
+
+            var frame = new DispatcherFrame();
+            var timer = new DispatcherTimer(
+                TimeSpan.FromMilliseconds(10),
+                DispatcherPriority.Background,
+                (_, _) => frame.Continue = false,
+                Dispatcher.CurrentDispatcher);
+            timer.Start();
+            Dispatcher.PushFrame(frame);
+            timer.Stop();
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+            // SQLite pooling may release the isolated test file just after the STA closes.
+        }
     }
 }

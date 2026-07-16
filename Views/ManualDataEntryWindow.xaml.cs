@@ -153,6 +153,7 @@ public partial class ManualDataEntryWindow : Window
     private bool _isLoadingTradeLogs;
     private bool _isSavingTradeLogs;
     private bool _tradeLogHasPendingChanges;
+    private CommittedTradeLogUiSync? _pendingCommittedTradeLogUiSync;
     private Button? _tradeLogSaveButton;
     private TextBlock? _tradeLogEditStateText;
     private TextBlock? _tradeLogRecordCountText;
@@ -3154,6 +3155,14 @@ public partial class ManualDataEntryWindow : Window
 
     private void LoadData()
     {
+        if (!TryLoadData(out string? error))
+        {
+            SetStatus($"读取失败：{error}", true);
+        }
+    }
+
+    private bool TryLoadData(out string? error)
+    {
         try
         {
             ReplaceCollection(_strategies, _repository.ReadStrategyConfigs());
@@ -3181,10 +3190,13 @@ public partial class ManualDataEntryWindow : Window
             LoadAccountFields();
             ClearDeletedIds();
             SetStatus("已载入本地数据。", false);
+            error = null;
+            return true;
         }
         catch (Exception ex)
         {
-            SetStatus($"读取失败：{ex.Message}", true);
+            error = ex.Message;
+            return false;
         }
     }
 
@@ -3343,6 +3355,17 @@ public partial class ManualDataEntryWindow : Window
 
     private async void SaveTradeLogs()
     {
+        if (_pendingCommittedTradeLogUiSync is not null)
+        {
+            if (_tradeLogSaveButton is not null)
+            {
+                _tradeLogSaveButton.IsEnabled = false;
+            }
+
+            SetStatus(BuildCommittedUiSyncFailureMessage(), true);
+            return;
+        }
+
         if (_isSavingTradeLogs)
         {
             SetStatus("TradeLog 正在保存，请等待当前保存完成。", true);
@@ -3366,8 +3389,10 @@ public partial class ManualDataEntryWindow : Window
                 return;
             }
 
-            List<TradeLogRecord> recordsToSave = _tradeLogs
+            TradeLogRecord[] boundRecords = _tradeLogs
                 .Where(record => !(record.Id <= 0 && IsUntouchedTradeLog(record)))
+                .ToArray();
+            List<TradeLogRecord> recordsToSave = boundRecords
                 .Select(CloneTradeLog)
                 .ToList();
 
@@ -3381,12 +3406,18 @@ public partial class ManualDataEntryWindow : Window
                 .Distinct()
                 .ToArray();
 
-            TradeLogSaveResult saveResult = await Task
+            TradeLogAtomicSaveResult saveResult = await Task
                 .Run(() => SaveTradeLogsCore(recordsToSave, idsToDelete))
                 .ConfigureAwait(true);
 
-            CopyTradeLogCalculatedFields(recordsToSave);
-            LoadData();
+            _pendingCommittedTradeLogUiSync = new CommittedTradeLogUiSync(boundRecords, recordsToSave, saveResult);
+            if (!TryCompleteCommittedTradeLogUiSync(out string? ignoredUiSyncError))
+            {
+                SetTradeLogEditState(TradeLogEditState.Saved);
+                SetStatus(BuildCommittedUiSyncFailureMessage(), true);
+                return;
+            }
+
             SetTradeLogEditState(TradeLogEditState.Saved);
             if (saveResult.ReplayResult.Account.ReplayStatus == "财务异常")
             {
@@ -3402,29 +3433,47 @@ public partial class ManualDataEntryWindow : Window
             }
 
             DataSaved?.Invoke(this, EventArgs.Empty);
+            _pendingCommittedTradeLogUiSync = null;
         }
-        catch (Exception ex)
+        catch (TradeLogFinancialReplayException ex)
         {
             SetTradeLogEditState(TradeLogEditState.Failed);
             AppExceptionLogger.WriteRuntime("ERROR", "TradeLog 保存失败", BuildTradeLogSaveFailureDetail(ex), ex);
             TryWriteRuntimeLog("ERROR", "ManualDataEntryWindow", "保存失败", ex.ToString());
-            SetStatus($"保存失败：{ex.Message}", true);
+            SetStatus("保存未完成：账户回放检测到财务异常，数据库已保持保存前状态。", true);
+        }
+        catch (Exception ex)
+        {
+            if (_pendingCommittedTradeLogUiSync is not null)
+            {
+                SetTradeLogEditState(TradeLogEditState.Saved);
+                AppExceptionLogger.WriteRuntime("ERROR", "TradeLog 提交后界面同步失败", BuildTradeLogSaveFailureDetail(ex), ex);
+                SetStatus(BuildCommittedUiSyncFailureMessage(), true);
+            }
+            else
+            {
+                SetTradeLogEditState(TradeLogEditState.Failed);
+                AppExceptionLogger.WriteRuntime("ERROR", "TradeLog 保存失败", BuildTradeLogSaveFailureDetail(ex), ex);
+                TryWriteRuntimeLog("ERROR", "ManualDataEntryWindow", "保存失败", ex.ToString());
+                SetStatus("保存未完成，数据库已保持保存前状态。可以检查输入后重新保存。", true);
+            }
         }
         finally
         {
             _isSavingTradeLogs = false;
             if (_tradeLogSaveButton is not null)
             {
-                _tradeLogSaveButton.IsEnabled = true;
+                _tradeLogSaveButton.IsEnabled = _pendingCommittedTradeLogUiSync is null;
             }
         }
     }
 
-    private TradeLogSaveResult SaveTradeLogsCore(IReadOnlyList<TradeLogRecord> recordsToSave, IReadOnlyList<long> idsToDelete)
+    private TradeLogAtomicSaveResult SaveTradeLogsCore(IReadOnlyList<TradeLogRecord> recordsToSave, IReadOnlyList<long> idsToDelete)
     {
         using var _ = AppOperationContext.Begin("TradeLog 保存后台：金额计算/账务推演/删除同步/账户回放");
         TradeLogLedgerNormalizer.AutoCalculateTradeAmounts(recordsToSave);
-        if (!TradeLogLedgerNormalizer.TryNormalizeLedgerFieldsBeforeSave(recordsToSave, _repository.ReadMarketQuoteCache(), out string? normalizeError))
+        MarketQuoteRecord[] quoteSnapshot = _repository.ReadMarketQuoteCache().ToArray();
+        if (!TradeLogLedgerNormalizer.TryNormalizeLedgerFieldsBeforeSave(recordsToSave, quoteSnapshot, out string? normalizeError))
         {
             throw new InvalidOperationException(normalizeError ?? "TradeLog 账务字段自动推演失败。");
         }
@@ -3434,9 +3483,7 @@ public partial class ManualDataEntryWindow : Window
             ValidateTradeLogForSave(record);
         }
 
-        _repository.SaveTradeLogsSnapshot(idsToDelete, recordsToSave);
-        AccountReplayResult replayResult = ReplayAccountFromTradeLogs();
-        return new TradeLogSaveResult(replayResult);
+        return _repository.SaveTradeLogsAndReplayAtomically(idsToDelete, recordsToSave, quoteSnapshot);
     }
 
     private void TradeLogGrid_CellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
@@ -3489,17 +3536,6 @@ public partial class ManualDataEntryWindow : Window
         {
             _isApplyingTradeLogAutoCalc = false;
         }
-    }
-
-    private AccountReplayResult ReplayAccountFromTradeLogs()
-    {
-        using var _ = AppOperationContext.Begin("TradeLog 保存后账户回放");
-        var replayService = new AccountReplayService();
-        AccountReplayResult replayResult = replayService.Replay(
-            _repository.ReadTradeLogs(),
-            _repository.ReadMarketQuoteCache());
-        _repository.SaveAccountReplayResult(replayResult);
-        return replayResult;
     }
 
     private void SaveWithStatus(string successMessage, Action save)
@@ -3748,6 +3784,9 @@ public partial class ManualDataEntryWindow : Window
     private string BuildTradeLogSaveFailureDetail(Exception ex)
         => $"TradeLog 保存失败。行数={_tradeLogs.Count}，待删除ID数={_deletedTradeLogIds.Count}，当前编辑ID={CurrentTradeLogId()}，异常={ex.Message}";
 
+    private static string BuildCommittedUiSyncFailureMessage()
+        => "交易事实和账户状态已经保存成功，但界面同步失败。请关闭并重新打开交易日志窗口，不要再次点击保存。";
+
     private long CurrentTradeLogId()
         => _tradeLogGrid.SelectedItem is TradeLogRecord record ? record.Id : 0;
 
@@ -3771,6 +3810,61 @@ public partial class ManualDataEntryWindow : Window
             CashBalance = record.CashBalance,
             TotalAssets = record.TotalAssets
         };
+
+    private bool TryCompleteCommittedTradeLogUiSync(out string? error)
+    {
+        CommittedTradeLogUiSync? pending = _pendingCommittedTradeLogUiSync;
+        if (pending is null)
+        {
+            error = null;
+            return true;
+        }
+
+        try
+        {
+            ApplyPersistedTradeLogIdentities(pending.BoundRecords, pending.SaveResult.Identities);
+            CopyTradeLogCalculatedFields(pending.CalculatedRecords);
+            if (!TryLoadData(out error))
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    internal static void ApplyPersistedTradeLogIdentities(
+        IReadOnlyList<TradeLogRecord> boundRecords,
+        IReadOnlyList<PersistedTradeLogIdentity> identities)
+    {
+        ArgumentNullException.ThrowIfNull(boundRecords);
+        ArgumentNullException.ThrowIfNull(identities);
+        if (boundRecords.Count != identities.Count)
+        {
+            throw new InvalidOperationException("TradeLog 提交结果与界面行数不一致。");
+        }
+
+        foreach (PersistedTradeLogIdentity identity in identities.OrderBy(item => item.SnapshotIndex))
+        {
+            if (identity.SnapshotIndex < 0 || identity.SnapshotIndex >= boundRecords.Count || identity.PersistedId <= 0)
+            {
+                throw new InvalidOperationException("TradeLog 提交结果包含无效的行标识。");
+            }
+
+            TradeLogRecord target = boundRecords[identity.SnapshotIndex];
+            if (target.Id != identity.OriginalId && target.Id != identity.PersistedId)
+            {
+                throw new InvalidOperationException("TradeLog 界面行在提交后发生了身份变化。");
+            }
+
+            target.Id = identity.PersistedId;
+        }
+    }
 
     private void CopyTradeLogCalculatedFields(IReadOnlyList<TradeLogRecord> calculatedRecords)
     {
@@ -3800,7 +3894,10 @@ public partial class ManualDataEntryWindow : Window
         }
     }
 
-    private sealed record TradeLogSaveResult(AccountReplayResult ReplayResult);
+    private sealed record CommittedTradeLogUiSync(
+        IReadOnlyList<TradeLogRecord> BoundRecords,
+        IReadOnlyList<TradeLogRecord> CalculatedRecords,
+        TradeLogAtomicSaveResult SaveResult);
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 }

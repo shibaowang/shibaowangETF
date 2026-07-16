@@ -47,8 +47,8 @@ public sealed class MarketDiagnosticsSnapshotServiceTests
             Assert.Equal("OK", marketRow.SourceStatus);
             Assert.Single(snapshot.RuntimeLogs);
             Assert.Equal(databasePath, snapshot.Environment.DatabasePath);
-            Assert.Equal("V8.10.0", snapshot.Environment.AppVersion);
-            Assert.Contains("8.10.0", snapshot.Environment.AssemblyInformationalVersion);
+            Assert.Equal("V8.10.1", snapshot.Environment.AppVersion);
+            Assert.Contains("8.10.1", snapshot.Environment.AssemblyInformationalVersion);
             Assert.Equal(1, snapshot.Overview.HistoricalRuntimeLogCount);
             Assert.Equal(0, snapshot.Overview.RecentErrorCount);
             Assert.Equal("正常", snapshot.Overview.OverallStatus);

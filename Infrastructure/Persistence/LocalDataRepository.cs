@@ -661,7 +661,15 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
     public IReadOnlyList<TradeLogRecord> ReadTradeLogs()
     {
         using var connection = _database.OpenConnection();
+        return ReadTradeLogs(connection, transaction: null);
+    }
+
+    private static IReadOnlyList<TradeLogRecord> ReadTradeLogs(
+        SqliteConnection connection,
+        SqliteTransaction? transaction)
+    {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT id, time, strategy_code, actual_code, action, price, quantity, amount, tier, source,
                    fee, memo, net_cash_impact, principal, cash_balance, total_assets
@@ -709,17 +717,108 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
     {
         using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
+        SaveTradeLogsSnapshot(connection, transaction, idsToDelete, records, faultInjector: null);
+        transaction.Commit();
+    }
+
+    public TradeLogAtomicSaveResult SaveTradeLogsAndReplayAtomically(
+        IReadOnlyCollection<long> idsToDelete,
+        IReadOnlyList<TradeLogRecord> records,
+        IReadOnlyList<MarketQuoteRecord> marketQuotes)
+        => SaveTradeLogsAndReplayAtomically(
+            idsToDelete,
+            records,
+            marketQuotes,
+            replayToday: null,
+            faultInjector: null,
+            commitAction: null);
+
+    internal TradeLogAtomicSaveResult SaveTradeLogsAndReplayAtomically(
+        IReadOnlyCollection<long> idsToDelete,
+        IReadOnlyList<TradeLogRecord> records,
+        IReadOnlyList<MarketQuoteRecord> marketQuotes,
+        DateTime? replayToday,
+        ITradeLogAtomicSaveFaultInjector? faultInjector,
+        Action<SqliteTransaction>? commitAction)
+    {
+        ArgumentNullException.ThrowIfNull(idsToDelete);
+        ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(marketQuotes);
+
+        long[] originalIds = records.Select(record => record.Id).ToArray();
+        bool committed = false;
+        try
+        {
+            using var connection = _database.OpenConnection();
+            using var transaction = connection.BeginTransaction();
+            SaveTradeLogsSnapshot(connection, transaction, idsToDelete, records, faultInjector);
+
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.BeforeReplay);
+            IReadOnlyList<TradeLogRecord> persistedTradeLogs = ReadTradeLogs(connection, transaction);
+            AccountReplayResult replayResult = new AccountReplayService().Replay(
+                persistedTradeLogs,
+                marketQuotes,
+                replayToday);
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterReplay);
+            if (replayResult.Account.ReplayStatus == "财务异常")
+            {
+                throw new TradeLogFinancialReplayException(replayResult.Account.ReplayError);
+            }
+
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.BeforeAccountReplayWrite);
+            SaveAccountReplayResult(connection, transaction, replayResult, faultInjector, writeRuntimeLog: false);
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.BeforeCommit);
+            if (commitAction is null)
+            {
+                transaction.Commit();
+            }
+            else
+            {
+                commitAction(transaction);
+            }
+            committed = true;
+
+            PersistedTradeLogIdentity[] identities = records
+                .Select((record, index) => new PersistedTradeLogIdentity(index, originalIds[index], record.Id))
+                .ToArray();
+            return new TradeLogAtomicSaveResult(true, replayResult, identities);
+        }
+        catch
+        {
+            if (!committed)
+            {
+                for (int index = 0; index < records.Count; index++)
+                {
+                    records[index].Id = originalIds[index];
+                }
+            }
+
+            throw;
+        }
+    }
+
+    private static void SaveTradeLogsSnapshot(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IEnumerable<long> idsToDelete,
+        IEnumerable<TradeLogRecord> records,
+        ITradeLogAtomicSaveFaultInjector? faultInjector)
+    {
+        int deleteIndex = 0;
         foreach (long id in idsToDelete.Distinct().Where(id => id > 0))
         {
             DeleteById(connection, transaction, "trade_log", id);
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterTradeLogDelete, deleteIndex++);
         }
 
+        int recordIndex = 0;
         foreach (TradeLogRecord record in records)
         {
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.BeforeTradeLogWrite, recordIndex);
             SaveTradeLog(connection, transaction, record);
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterTradeLogWrite, recordIndex);
+            recordIndex++;
         }
-
-        transaction.Commit();
     }
 
     private static void SaveTradeLog(SqliteConnection connection, SqliteTransaction transaction, TradeLogRecord record)
@@ -766,7 +865,6 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
                     cash_balance = $cash_balance,
                     total_assets = $total_assets
                 WHERE id = $id;
-                SELECT $id;
                 """;
             command.Parameters.AddWithValue("$id", record.Id);
         }
@@ -786,7 +884,17 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
         command.Parameters.AddWithValue("$principal", record.Principal);
         command.Parameters.AddWithValue("$cash_balance", record.CashBalance);
         command.Parameters.AddWithValue("$total_assets", record.TotalAssets);
-        record.Id = Convert.ToInt64(command.ExecuteScalar());
+        if (record.Id <= 0)
+        {
+            record.Id = Convert.ToInt64(command.ExecuteScalar());
+            return;
+        }
+
+        int affectedRows = command.ExecuteNonQuery();
+        if (affectedRows != 1)
+        {
+            throw new InvalidOperationException($"TradeLog 更新失败：ID {record.Id} 不存在或未唯一命中。");
+        }
     }
 
     public void DeleteTradeLog(long id) => DeleteById("trade_log", id);
@@ -1906,34 +2014,50 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
     {
         using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
+        SaveAccountReplayResult(connection, transaction, result, faultInjector: null, writeRuntimeLog: true);
+        transaction.Commit();
+    }
 
+    private static void SaveAccountReplayResult(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        AccountReplayResult result,
+        ITradeLogAtomicSaveFaultInjector? faultInjector,
+        bool writeRuntimeLog)
+    {
         InsertAccountReplayState(connection, transaction, result.Account);
+        faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterAccountReplayState);
         InsertAccountReplaySnapshotIfNeeded(connection, transaction, result.Account);
+        faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterAccountReplaySnapshot);
         if (result.Account.ReplayStatus != "财务异常")
         {
             ExecuteNonQuery(connection, transaction, "DELETE FROM position_replay_state;");
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterPositionReplayDelete);
             ExecuteNonQuery(connection, transaction, "DELETE FROM otc_position_replay_state;");
+            faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterOtcPositionReplayDelete);
+            int positionIndex = 0;
             foreach (PositionReplayStateRecord position in result.Positions)
             {
                 InsertPositionReplayState(connection, transaction, position);
+                faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterPositionReplayWrite, positionIndex++);
             }
 
+            int otcPositionIndex = 0;
             foreach (OtcPositionReplayStateRecord position in result.OtcPositions)
             {
                 InsertOtcPositionReplayState(connection, transaction, position);
+                faultInjector?.OnStage(TradeLogAtomicSaveStage.AfterOtcPositionReplayWrite, otcPositionIndex++);
             }
         }
 
-        if (result.Errors.Count > 0)
+        if (writeRuntimeLog && result.Errors.Count > 0)
         {
             InsertRuntimeLog(connection, transaction, "ERROR", "AccountReplay", "TradeLog 回放财务异常", string.Join(Environment.NewLine, result.Errors));
         }
-        else if (result.Warnings.Count > 0)
+        else if (writeRuntimeLog && result.Warnings.Count > 0)
         {
             InsertRuntimeLog(connection, transaction, "WARN", "AccountReplay", "TradeLog 回放估值不完整", string.Join(Environment.NewLine, result.Warnings));
         }
-
-        transaction.Commit();
     }
 
     private static IReadOnlyList<AccountReplaySnapshotRecord> ReadAccountReplaySnapshots(SqliteConnection connection, int limit)
@@ -2959,7 +3083,11 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
         command.Transaction = transaction;
         command.CommandText = $"DELETE FROM {tableName} WHERE id = $id;";
         command.Parameters.AddWithValue("$id", id);
-        command.ExecuteNonQuery();
+        int affectedRows = command.ExecuteNonQuery();
+        if (affectedRows != 1)
+        {
+            throw new InvalidOperationException($"{tableName} 删除失败：ID {id} 不存在或未唯一命中。");
+        }
     }
 
     private static bool HasFiniteValue(double? value)
@@ -3037,4 +3165,26 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
             throw new InvalidOperationException($"{fieldName}只允许：{string.Join("、", allowedValues)}。");
         }
     }
+}
+
+internal enum TradeLogAtomicSaveStage
+{
+    AfterTradeLogDelete,
+    BeforeTradeLogWrite,
+    AfterTradeLogWrite,
+    BeforeReplay,
+    AfterReplay,
+    BeforeAccountReplayWrite,
+    AfterAccountReplayState,
+    AfterAccountReplaySnapshot,
+    AfterPositionReplayDelete,
+    AfterPositionReplayWrite,
+    AfterOtcPositionReplayDelete,
+    AfterOtcPositionReplayWrite,
+    BeforeCommit
+}
+
+internal interface ITradeLogAtomicSaveFaultInjector
+{
+    void OnStage(TradeLogAtomicSaveStage stage, int itemIndex = -1);
 }

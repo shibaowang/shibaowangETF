@@ -1,5 +1,12 @@
 # CrossETF.Terminal.UiShell.Reference
 
+## V8.10.1 TradeLog atomic save test build
+
+- TradeLog facts and the core account/position replay tables now save through one SQLite connection and one transaction, with one commit covering `trade_log`, `account_replay_state`, `account_replay_snapshot`, `position_replay_state`, and `otc_position_replay_state`.
+- The TradeLog save entry has a code-level reentry guard. Rapid repeated clicks cannot enter cloning, calculation, or repository persistence more than once while a save is active.
+- A rollback leaves all five core tables at their previous state and allows a safe retry. If the database commit succeeds but UI synchronization fails, further saves in that window stay disabled and the user must close and reopen the TradeLog window.
+- Legal duplicate trades remain supported. No content deduplication, unique constraint, schema change, strategy change, or order-draft change was added. See `docs/TASK_TRADELOG_SAVE_ATOMIC_024.md`.
+
 ## 2026-06-30 TASK-MARKET-US-OPEN-QUOTE-RELEASE-042 US-open index quote throttle release
 
 - Fixed the US-open transition where a pre-open `IndexQuote` request could leave a 5-minute non-trading `nextAllowedAt` in memory and delay the first `ulist.np` quote refresh after 21:30 Beijing time.
