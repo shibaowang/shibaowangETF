@@ -1,0 +1,526 @@
+<Window x:Class="CrossETF.Terminal.UiShell.Reference.Views.T1T6ChartCenterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="T1-T6看图中心"
+        Width="1500"
+        Height="860"
+        MinWidth="1180"
+        MinHeight="680"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="CanResize"
+        Background="#050B14"
+        FontFamily="Microsoft YaHei UI"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Loaded="T1T6ChartCenterWindow_Loaded"
+        Closed="T1T6ChartCenterWindow_Closed">
+    <Window.Resources>
+        <SolidColorBrush x:Key="ChartCenterTextBrush" Color="#EAF6FF" />
+        <SolidColorBrush x:Key="ChartCenterMutedBrush" Color="#91A9BB" />
+        <SolidColorBrush x:Key="ChartCenterPanelBrush" Color="#071B2A" />
+        <SolidColorBrush x:Key="ChartCenterPanelAltBrush" Color="#082235" />
+        <SolidColorBrush x:Key="ChartCenterBorderBrush" Color="#1F4E68" />
+        <SolidColorBrush x:Key="ChartCenterSelectedBrush" Color="#123E5A" />
+        <SolidColorBrush x:Key="ChartCenterAccentBrush" Color="#41B6E6" />
+        <SolidColorBrush x:Key="ChartCenterSuggestedBrush" Color="#F5A623" />
+        <SolidColorBrush x:Key="ChartCenterNormalBrush" Color="#63D95F" />
+        <SolidColorBrush x:Key="ChartCenterWarningBrush" Color="#F5A623" />
+        <SolidColorBrush x:Key="ChartCenterErrorBrush" Color="#FF5D68" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource ChartCenterTextBrush}" />
+        </Style>
+
+        <Style x:Key="T1T6ScrollBarThumbStyle" TargetType="Thumb">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="#355C74" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="ThumbBorder" Margin="2" Background="{TemplateBinding Background}" CornerRadius="4" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="#4A7892" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="#5A91AD" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="T1T6ScrollBarLineButtonStyle" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="#0A1C2A" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border x:Name="LineButtonBorder" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="LineButtonBorder" Property="Background" Value="#12344A" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="LineButtonBorder" Property="Background" Value="#19506E" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="T1T6ScrollBarPageButtonStyle" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border x:Name="PageButtonBorder" Background="{TemplateBinding Background}" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="PageButtonBorder" Property="Background" Value="#0A2233" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="PageButtonBorder" Property="Background" Value="#10364D" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <ControlTemplate x:Key="T1T6VerticalScrollBarTemplate" TargetType="ScrollBar">
+            <Grid Width="15" Background="#071724" SnapsToDevicePixels="True">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="15" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="15" />
+                </Grid.RowDefinitions>
+                <RepeatButton Grid.Row="0" Command="{x:Static ScrollBar.LineUpCommand}"
+                              CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                              Style="{StaticResource T1T6ScrollBarLineButtonStyle}">
+                    <Path Width="7" Height="4" Fill="#8EADC0" Stretch="Fill" Data="M 0 4 L 3.5 0 L 7 4 Z" />
+                </RepeatButton>
+                <Track x:Name="PART_Track" Grid.Row="1" IsDirectionReversed="True">
+                    <Track.DecreaseRepeatButton>
+                        <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                      CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                                      Style="{StaticResource T1T6ScrollBarPageButtonStyle}" />
+                    </Track.DecreaseRepeatButton>
+                    <Track.Thumb>
+                        <Thumb MinHeight="28" Style="{StaticResource T1T6ScrollBarThumbStyle}" />
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton>
+                        <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                      CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                                      Style="{StaticResource T1T6ScrollBarPageButtonStyle}" />
+                    </Track.IncreaseRepeatButton>
+                </Track>
+                <RepeatButton Grid.Row="2" Command="{x:Static ScrollBar.LineDownCommand}"
+                              CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                              Style="{StaticResource T1T6ScrollBarLineButtonStyle}">
+                    <Path Width="7" Height="4" Fill="#8EADC0" Stretch="Fill" Data="M 0 0 L 3.5 4 L 7 0 Z" />
+                </RepeatButton>
+            </Grid>
+        </ControlTemplate>
+
+        <Style x:Key="T1T6ScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Width" Value="15" />
+            <Setter Property="MinWidth" Value="15" />
+            <Setter Property="Background" Value="#071724" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template" Value="{StaticResource T1T6VerticalScrollBarTemplate}" />
+        </Style>
+
+        <Style x:Key="T1T6StrategyListStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="#071724" />
+            <Setter Property="BorderBrush" Value="{StaticResource ChartCenterBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="5" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+        </Style>
+
+        <Style x:Key="T1T6StrategyItemStyle" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#173D55" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Padding="11"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#0E334B" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource ChartCenterSelectedBrush}" />
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource ChartCenterAccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="T1T6ActionButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="38" />
+            <Setter Property="MinWidth" Value="116" />
+            <Setter Property="Padding" Value="18,0" />
+            <Setter Property="Background" Value="#0D5072" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#2788AF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#14668D" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#083B56" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#263C49" />
+                                <Setter Property="Foreground" Value="#91A9BB" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="T1T6DataStatusStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource ChartCenterNormalBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="无决策">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterWarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="同标的多策略">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterAccentBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="ETF代码无效">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="实时行情缺失">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="行情陈旧">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterWarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="数据源异常">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="限频">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterWarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SelectedRow.DataStatusText}" Value="熔断冷却">
+                    <Setter Property="Foreground" Value="{StaticResource ChartCenterWarningBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="#050B14" Margin="18" ClipToBounds="True">
+        <Grid.Resources>
+            <Style TargetType="ScrollBar" BasedOn="{StaticResource T1T6ScrollBarStyle}" />
+        </Grid.Resources>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="T1-T6看图中心" FontSize="25" FontWeight="SemiBold" />
+                <TextBlock Text="启用策略、本地派生状态与六档权重结构，只读观察"
+                           Margin="0,5,0,0"
+                           FontSize="13"
+                           Foreground="{StaticResource ChartCenterMutedBrush}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                <TextBlock x:Name="LocalReadStatusText"
+                           Text="等待本地只读快照"
+                           HorizontalAlignment="Right"
+                           Foreground="{StaticResource ChartCenterMutedBrush}" />
+                <TextBlock Text="每2秒读取本地状态，不发起行情请求"
+                           Margin="0,4,0,0"
+                           HorizontalAlignment="Right"
+                           Foreground="{StaticResource ChartCenterMutedBrush}"
+                           FontSize="12" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" MinHeight="70" Background="{StaticResource ChartCenterPanelBrush}" BorderBrush="{StaticResource ChartCenterBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15,10">
+                <StackPanel><TextBlock Text="启用策略" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding EnabledStrategyCount}" Margin="0,4,0,0" FontSize="21" FontWeight="SemiBold" /></StackPanel>
+            </Border>
+            <Border Grid.Column="2" MinHeight="70" Background="{StaticResource ChartCenterPanelBrush}" BorderBrush="{StaticResource ChartCenterBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15,10">
+                <StackPanel><TextBlock Text="行情正常" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding HealthyQuoteCount}" Margin="0,4,0,0" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource ChartCenterNormalBrush}" /></StackPanel>
+            </Border>
+            <Border Grid.Column="4" MinHeight="70" Background="{StaticResource ChartCenterPanelBrush}" BorderBrush="{StaticResource ChartCenterBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15,10">
+                <StackPanel><TextBlock Text="无决策" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding MissingDecisionCount}" Margin="0,4,0,0" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource ChartCenterWarningBrush}" /></StackPanel>
+            </Border>
+            <Border Grid.Column="6" MinHeight="70" Background="{StaticResource ChartCenterPanelBrush}" BorderBrush="{StaticResource ChartCenterBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15,10" ToolTip="{Binding DuplicateEtfToolTip}">
+                <StackPanel><TextBlock Text="同标的多策略" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding DuplicateEtfStrategyCount}" Margin="0,4,0,0" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource ChartCenterAccentBrush}" /></StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="8" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="启用策略" FontSize="16" FontWeight="SemiBold" />
+                <ListBox x:Name="StrategyList"
+                         Grid.Row="2"
+                         Style="{StaticResource T1T6StrategyListStyle}"
+                         ItemContainerStyle="{StaticResource T1T6StrategyItemStyle}"
+                         SelectionMode="Single"
+                         SelectionChanged="StrategyList_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding StrategyCode}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding CurrentSuggestedTierText}" Foreground="{StaticResource ChartCenterSuggestedBrush}" FontWeight="SemiBold" />
+                                </Grid>
+                                <TextBlock Grid.Row="1" Text="{Binding StrategyName}" Margin="0,4,0,0" Foreground="{StaticResource ChartCenterMutedBrush}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Row="2" Margin="0,5,0,0" Foreground="{StaticResource ChartCenterMutedBrush}">
+                                    <Run Text="{Binding EtfName}" /><Run Text="  " /><Run Text="{Binding EtfCode}" />
+                                </TextBlock>
+                                <Grid Grid.Row="3" Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding CurrentAction}" Foreground="{StaticResource ChartCenterAccentBrush}" TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding QuoteStatusText}" HorizontalAlignment="Right" Foreground="{StaticResource ChartCenterMutedBrush}" />
+                                        <TextBlock Text="{Binding DecisionCalculatedAtText}" Margin="0,2,0,0" HorizontalAlignment="Right" Foreground="{StaticResource ChartCenterMutedBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Grid.Row="4"
+                                           Text="{Binding DuplicateHintText}"
+                                           Margin="0,5,0,0"
+                                           Foreground="{StaticResource ChartCenterAccentBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers><DataTrigger Binding="{Binding IsDuplicateEtfCode}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Grid.Row="2" Text="暂无启用策略" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource ChartCenterMutedBrush}" IsHitTestVisible="False">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding EnabledStrategyCount}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Background="{StaticResource ChartCenterPanelBrush}" BorderBrush="{StaticResource ChartCenterBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="10" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="10" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="当前策略状态" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding SelectedRow.DataStatusText}" ToolTip="{Binding SelectedRow.DataStatusToolTip}" FontWeight="SemiBold" Style="{StaticResource T1T6DataStatusStyle}" />
+                            </Grid>
+                            <Grid Grid.Row="2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="策略代码" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Grid.Column="1" Margin="8,0,18,0" Text="{Binding SelectedRow.StrategyCode, TargetNullValue=--}" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="2" Text="策略名称" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Grid.Column="3" Margin="8,0,18,0" Text="{Binding SelectedRow.StrategyName, TargetNullValue=--}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="4" Text="ETF名称" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Grid.Column="5" Margin="8,0,18,0" Text="{Binding SelectedRow.EtfName, TargetNullValue=--}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="6" Text="ETF代码" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Grid.Column="7" Margin="8,0,0,0" Text="{Binding SelectedRow.EtfCode, TargetNullValue=--}" />
+                            </Grid>
+                            <Grid Grid.Row="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="跟踪指数" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.IndexSecId, TargetNullValue=--}" Margin="0,4,0,0" FontSize="15" /></StackPanel>
+                                <StackPanel Grid.Column="1"><TextBlock Text="最新价格" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.LatestPriceText, TargetNullValue=--}" Margin="0,4,0,0" FontSize="17" FontWeight="SemiBold" /></StackPanel>
+                                <StackPanel Grid.Column="2"><TextBlock Text="当前指数回撤" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.CurrentIndexDrawdownText, TargetNullValue=--}" Margin="0,4,0,0" FontSize="17" FontWeight="SemiBold" /></StackPanel>
+                                <StackPanel Grid.Column="3"><TextBlock Text="当前溢价" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.CurrentPremiumText, TargetNullValue=--}" Margin="0,4,0,0" FontSize="17" FontWeight="SemiBold" /></StackPanel>
+                                <StackPanel Grid.Column="4"><TextBlock Text="当前档位（派生建议）" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.CurrentSuggestedTierText, TargetNullValue=--}" Margin="0,4,0,0" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource ChartCenterSuggestedBrush}" /></StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="2" Background="{StaticResource ChartCenterPanelBrush}" BorderBrush="{StaticResource ChartCenterBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="行情来源" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.QuoteSource, TargetNullValue=--}" Margin="0,4,0,0" /></StackPanel>
+                                <StackPanel Grid.Column="1"><TextBlock Text="行情时间" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.QuoteTime, TargetNullValue=--}" Margin="0,4,0,0" ToolTip="{Binding SelectedRow.QuoteToolTip}" /></StackPanel>
+                                <StackPanel Grid.Column="2"><TextBlock Text="当前动作（派生建议）" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.CurrentAction, TargetNullValue=--}" Margin="0,4,0,0" Foreground="{StaticResource ChartCenterAccentBrush}" /></StackPanel>
+                                <StackPanel Grid.Column="3"><TextBlock Text="决策计算时间" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding SelectedRow.DecisionCalculatedAtText, TargetNullValue=--}" Margin="0,4,0,0" ToolTip="{Binding SelectedRow.DecisionToolTip}" /></StackPanel>
+                            </Grid>
+                            <TextBlock Grid.Row="2" Text="T1-T6六档权重结构" FontSize="16" FontWeight="SemiBold" />
+                        </Grid>
+                    </Border>
+
+                    <ItemsControl Grid.Row="4" ItemsSource="{Binding SelectedRow.Tiers}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border MinHeight="132" Margin="0,0,10,10" Padding="12" CornerRadius="4">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="{StaticResource ChartCenterPanelAltBrush}" />
+                                            <Setter Property="BorderBrush" Value="#23485E" />
+                                            <Setter Property="BorderThickness" Value="1" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsConditionMet}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ChartCenterAccentBrush}" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding IsCurrentSuggestedTier}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ChartCenterSuggestedBrush}" /><Setter Property="BorderThickness" Value="2" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding TierCode}" FontSize="18" FontWeight="SemiBold" />
+                                            <TextBlock Grid.Column="1" Text="{Binding TierName}" Margin="8,2,0,0" Foreground="{StaticResource ChartCenterMutedBrush}" />
+                                            <TextBlock Grid.Column="2" Text="当前建议" Foreground="{StaticResource ChartCenterSuggestedBrush}" FontWeight="SemiBold">
+                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsCurrentSuggestedTier}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                        <Grid Grid.Row="2">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="触发回撤" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding TriggerText}" Margin="0,3,0,0" FontSize="18" FontWeight="SemiBold" /></StackPanel>
+                                            <StackPanel Grid.Column="1"><TextBlock Text="档位权重" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding WeightText}" Margin="0,3,0,0" FontSize="17" /></StackPanel>
+                                            <StackPanel Grid.Column="2"><TextBlock Text="累计权重" Foreground="{StaticResource ChartCenterMutedBrush}" /><TextBlock Text="{Binding CumulativeWeightText}" Margin="0,3,0,0" FontSize="17" /></StackPanel>
+                                        </Grid>
+                                        <Grid Grid.Row="4">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding ConditionStatusText}">
+                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource ChartCenterMutedBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsConditionMet}" Value="True"><Setter Property="Foreground" Value="{StaticResource ChartCenterAccentBrush}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Grid.Column="1" Text="{Binding CumulativeWeightRatioText, StringFormat='累计占六档权重 {0}'}" Foreground="{StaticResource ChartCenterMutedBrush}" />
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+
+        <Grid Grid.Row="6">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="当前动作、当前档位和回撤状态来自最近一次持久化策略决策，仅用于观察和看图，不代表已成交，不会生成或执行委托，也不会写入TradeLog。"
+                           Foreground="{StaticResource ChartCenterWarningBrush}"
+                           FontSize="12.5"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="数据来源：启用策略配置、持久化策略决策、相关ETF本地行情缓存及行情源状态。"
+                           Margin="0,4,0,0"
+                           Foreground="{StaticResource ChartCenterMutedBrush}"
+                           FontSize="12" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="打开图表"
+                    Margin="20,0,0,0"
+                    Style="{StaticResource T1T6ActionButtonStyle}"
+                    IsEnabled="{Binding SelectedRow.CanOpenChart, FallbackValue=False, TargetNullValue=False}"
+                    ToolTip="{Binding SelectedRow.ChartToolTip, FallbackValue=未选择有效ETF}"
+                    Click="OpenChartButton_Click" />
+        </Grid>
+    </Grid>
+</Window>

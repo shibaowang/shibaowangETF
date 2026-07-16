@@ -200,6 +200,8 @@ dotnet run --project .\CrossETF.Terminal.UiShell.Reference.csproj
 
 `V8.9.0` 测试版接通左侧既有“指标回撤”入口，新增单实例、纯本地只读的指标回撤中心。首版仅覆盖 `251.NDXTMC`、`100.NDX100` 和当前启用策略对应的去重场内 ETF；历史指标统一使用真实前复权日线收盘价，最新真实 quote 仅用于最新价和当前回撤。窗口不联网、不写数据库、不读取 TradeLog，也不修改主界面旧回撤图或图表模块。详细边界见 `docs/TASK_INDICATOR_DRAWDOWN_021.md`。
 
+`V8.10.0` 测试版接通左侧既有“T1-T6看图”入口，新增单实例、纯本地只读的 T1-T6 看图中心。页面按启用策略分别展示最近持久化决策、真实 ETF 行情状态及六档固定回撤阈值与配置权重；同 ETF 多策略共享行情和现有证券图表，但决策严格按 `StrategyCode` 独立匹配。该中心不重新计算策略、不读取 TradeLog、账户或委托数据，不联网、不写数据库，也不绘制目标价格、金额、数量或成交状态。详细边界见 `docs/TASK_T1T6_CHART_CENTER_022.md`。
+
 ```text
 %LocalAppData%\CrossETF.Terminal.UiShell.Reference\cross_etf_terminal.db
 ```

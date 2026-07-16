@@ -113,6 +113,7 @@ public partial class MainWindow : Window
     private MarketMonitorWindow? _marketMonitorWindow;
     private IndicatorDrawdownWindow? _indicatorDrawdownWindow;
     private CapitalPositionWindow? _capitalPositionWindow;
+    private T1T6ChartCenterWindow? _t1T6ChartCenterWindow;
     private RiskCenterWindow? _riskCenterWindow;
     private readonly Dictionary<string, DateTimeOffset> _strategyRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _orderRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
@@ -1553,11 +1554,15 @@ public partial class MainWindow : Window
     public static bool IsIndicatorDrawdownNavigation(string navigationName)
         => string.Equals(navigationName, "指标回撤", StringComparison.Ordinal);
 
+    public static bool IsT1T6ChartCenterNavigation(string navigationName)
+        => string.Equals(navigationName, "T1-T6看图", StringComparison.Ordinal);
+
     public static bool IsActionableNavigation(string navigationName)
         => ResolveManualEntryScopeForNavigation(navigationName) is not null
            || IsMarketMonitorNavigation(navigationName)
            || IsIndicatorDrawdownNavigation(navigationName)
            || IsCapitalPositionNavigation(navigationName)
+           || IsT1T6ChartCenterNavigation(navigationName)
            || IsRiskCenterNavigation(navigationName);
 
     public static string BuildVersionDisplayText()
@@ -1622,6 +1627,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (IsT1T6ChartCenterNavigation(navigationName))
+        {
+            OpenT1T6ChartCenter();
+            return;
+        }
+
         if (ResolveManualEntryScopeForNavigation(navigationName) is ManualEntryScope scope)
         {
             OpenManualEntry(scope);
@@ -1676,6 +1687,54 @@ public partial class MainWindow : Window
         };
         _riskCenterWindow.Closed += (_, _) => _riskCenterWindow = null;
         _riskCenterWindow.Show();
+    }
+
+    private void OpenT1T6ChartCenter()
+    {
+        if (_t1T6ChartCenterWindow is { IsVisible: true })
+        {
+            if (_t1T6ChartCenterWindow.WindowState == WindowState.Minimized)
+            {
+                _t1T6ChartCenterWindow.WindowState = WindowState.Normal;
+            }
+
+            _t1T6ChartCenterWindow.Activate();
+            _t1T6ChartCenterWindow.Focus();
+            return;
+        }
+
+        var snapshotBuilder = new T1T6ChartCenterSnapshotBuilder();
+        T1T6ChartCenterReadModel readModel = _repository.ReadT1T6ChartCenterReadModel();
+        T1T6ChartCenterSnapshot initialSnapshot = snapshotBuilder.Build(readModel, DateTimeOffset.Now);
+        _t1T6ChartCenterWindow = new T1T6ChartCenterWindow(
+            _repository,
+            OpenT1T6SecurityChart,
+            readModel,
+            initialSnapshot)
+        {
+            Owner = this
+        };
+        _t1T6ChartCenterWindow.Closed += (_, _) => _t1T6ChartCenterWindow = null;
+        _t1T6ChartCenterWindow.Show();
+    }
+
+    private void OpenT1T6SecurityChart(T1T6ChartOpenRequest request)
+    {
+        string normalizedSymbol = MarketSymbolNormalizer.DigitsOnly(request.Symbol);
+        if (normalizedSymbol.Length != 6 || !normalizedSymbol.All(char.IsDigit))
+        {
+            throw new InvalidOperationException("ETF代码无效，无法打开图表。");
+        }
+
+        string displayName = string.IsNullOrWhiteSpace(request.DisplayName)
+            ? normalizedSymbol
+            : request.DisplayName.Trim();
+        ChartSecurityInfo security = ChartDataService.CreateSecurityInfo(
+            normalizedSymbol,
+            displayName,
+            normalizedSymbol);
+        _chartWindowManager.OpenOrActivate(security);
+        QueueChartRefresh();
     }
 
     private void BuildNavigation()

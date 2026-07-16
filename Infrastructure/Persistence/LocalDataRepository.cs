@@ -20,6 +20,269 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
 
     public string DatabasePath => _database.DatabasePath;
 
+    public T1T6ChartCenterReadModel ReadT1T6ChartCenterReadModel()
+    {
+        try
+        {
+            using SqliteConnection connection = OpenT1T6ChartCenterReadOnlyConnection();
+            EnableT1T6ChartCenterQueryOnly(connection);
+            using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+            IReadOnlyList<StrategyConfigRecord> strategies = ReadT1T6ChartCenterStrategies(connection, transaction);
+            IReadOnlyList<StrategyDecisionStateRecord> decisions = ReadT1T6ChartCenterDecisions(connection, transaction, strategies);
+            IReadOnlyList<MarketQuoteRecord> quotes = ReadT1T6ChartCenterQuotes(connection, transaction, strategies);
+            IReadOnlyList<MarketSourceStatusRecord> statuses = ReadT1T6ChartCenterSourceStatuses(
+                connection,
+                transaction,
+                strategies,
+                decisions,
+                quotes);
+            transaction.Commit();
+            return new T1T6ChartCenterReadModel
+            {
+                EnabledStrategies = strategies,
+                LatestDecisions = decisions,
+                RelatedQuotes = quotes,
+                RelatedSourceStatuses = statuses,
+                ReadAt = DateTimeOffset.Now
+            };
+        }
+        catch (Exception ex)
+        {
+            return new T1T6ChartCenterReadModel
+            {
+                ReadAt = DateTimeOffset.Now,
+                ReadError = ex.Message
+            };
+        }
+    }
+
+    private SqliteConnection OpenT1T6ChartCenterReadOnlyConnection()
+    {
+        var builder = new SqliteConnectionStringBuilder
+        {
+            DataSource = _database.DatabasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        };
+        var connection = new SqliteConnection(builder.ToString());
+        connection.Open();
+        return connection;
+    }
+
+    private static void EnableT1T6ChartCenterQueryOnly(SqliteConnection connection)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "PRAGMA query_only = ON;";
+        command.ExecuteNonQuery();
+    }
+
+    private static IReadOnlyList<StrategyConfigRecord> ReadT1T6ChartCenterStrategies(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        using SqliteCommand command = CreateT1T6ChartCenterCommand(connection, transaction);
+        command.CommandText = """
+            SELECT id, code, name, index_sec_id, etf_high, index_high, extra_price, take_profit_price,
+                   sell_ratio, add_premium_limit, t1_weight, t2_weight, t3_weight,
+                   t4_weight, t5_weight, t6_weight, adj_factor, enabled, created_at, updated_at
+            FROM strategy_config
+            WHERE enabled = 1
+            ORDER BY code COLLATE NOCASE, id;
+            """;
+        using SqliteDataReader reader = command.ExecuteReader();
+        var records = new List<StrategyConfigRecord>();
+        while (reader.Read())
+        {
+            records.Add(new StrategyConfigRecord
+            {
+                Id = reader.GetInt64(0),
+                Code = reader.GetString(1),
+                Name = reader.GetString(2),
+                IndexSecId = OptionalString(reader, 3),
+                EtfHigh = OptionalDouble(reader, 4),
+                IndexHigh = OptionalDouble(reader, 5),
+                ExtraPrice = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 6)),
+                TakeProfitPrice = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 7)),
+                SellRatio = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 8)),
+                AddPremiumLimit = PercentValueParser.NormalizeStoredPercent(OptionalDouble(reader, 9)),
+                T1Weight = OptionalDouble(reader, 10),
+                T2Weight = OptionalDouble(reader, 11),
+                T3Weight = OptionalDouble(reader, 12),
+                T4Weight = OptionalDouble(reader, 13),
+                T5Weight = OptionalDouble(reader, 14),
+                T6Weight = OptionalDouble(reader, 15),
+                AdjFactor = OptionalDouble(reader, 16),
+                Enabled = reader.GetInt64(17) != 0,
+                CreatedAt = reader.GetString(18),
+                UpdatedAt = reader.GetString(19)
+            });
+        }
+
+        return records;
+    }
+
+    private static IReadOnlyList<StrategyDecisionStateRecord> ReadT1T6ChartCenterDecisions(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyCollection<StrategyConfigRecord> strategies)
+    {
+        string[] strategyCodes = strategies
+            .Select(strategy => strategy.Code?.Trim())
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (strategyCodes.Length == 0)
+        {
+            return Array.Empty<StrategyDecisionStateRecord>();
+        }
+
+        using SqliteCommand command = CreateT1T6ChartCenterCommand(connection, transaction);
+        string parameters = AddT1T6ChartCenterParameters(command, strategyCodes, "$strategy");
+        command.CommandText = $"""
+            SELECT id, calculated_at, strategy_code, name, action_instruction, strategy_status,
+                   preferred_source, target_tier, target_amount, available_cash, suggested_price,
+                   premium, return_rate, etf_drawdown, index_drawdown, base_mode, base_ratio,
+                   base_fixed_amount, base_target_amount, base_current_cost, base_completion_rate,
+                   base_gap_amount, base_target_capped, real_sniper_pool, tier_total_parts,
+                   tier_cumulative_target, tier_executed_amount, tier_remain_amount,
+                   prerequisite_status, prerequisite_message, is_actionable
+            FROM strategy_decision_state
+            WHERE strategy_code IN ({parameters})
+            ORDER BY strategy_code COLLATE NOCASE, calculated_at DESC, id DESC;
+            """;
+        using SqliteDataReader reader = command.ExecuteReader();
+        var records = new List<StrategyDecisionStateRecord>();
+        while (reader.Read())
+        {
+            records.Add(ReadStrategyDecisionState(reader));
+        }
+
+        return records
+            .GroupBy(record => record.StrategyCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(record => ParseSortTime(record.CalculatedAt))
+                .ThenByDescending(record => record.Id)
+                .First())
+            .OrderBy(record => record.StrategyCode, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<MarketQuoteRecord> ReadT1T6ChartCenterQuotes(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyCollection<StrategyConfigRecord> strategies)
+    {
+        string[] symbols = strategies
+            .Select(strategy => MarketSymbolNormalizer.DigitsOnly(strategy.Code ?? string.Empty))
+            .Where(symbol => symbol.Length == 6 && symbol.All(char.IsDigit))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(symbol => symbol, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (symbols.Length == 0)
+        {
+            return Array.Empty<MarketQuoteRecord>();
+        }
+
+        using SqliteCommand command = CreateT1T6ChartCenterCommand(connection, transaction);
+        string parameters = AddT1T6ChartCenterParameters(command, symbols, "$symbol");
+        command.CommandText = $"""
+            SELECT id, symbol, display_name, market_type, source, price, last_close, change_value, change_percent,
+                   high_value, low_value, open_value, volume, amount, iopv, quote_time, received_at, raw_code, raw_payload
+            FROM market_quote_cache
+            WHERE market_type = 'ETF'
+              AND symbol IN ({parameters})
+            ORDER BY symbol COLLATE NOCASE, received_at DESC, id DESC;
+            """;
+        using SqliteDataReader reader = command.ExecuteReader();
+        var records = new List<MarketQuoteRecord>();
+        while (reader.Read())
+        {
+            records.Add(ReadMarketQuote(reader));
+        }
+
+        return records;
+    }
+
+    private static IReadOnlyList<MarketSourceStatusRecord> ReadT1T6ChartCenterSourceStatuses(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyCollection<StrategyConfigRecord> strategies,
+        IReadOnlyCollection<StrategyDecisionStateRecord> decisions,
+        IReadOnlyCollection<MarketQuoteRecord> quotes)
+    {
+        string[] sources = quotes.Select(quote => quote.Source)
+            .Concat(decisions.Select(decision => decision.PreferredSource ?? string.Empty))
+            .Concat(strategies.Count > 0 ? new[] { MarketSources.Tencent } : Array.Empty<string>())
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .Select(source => source.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(source => source, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (sources.Length == 0)
+        {
+            return Array.Empty<MarketSourceStatusRecord>();
+        }
+
+        using SqliteCommand command = CreateT1T6ChartCenterCommand(connection, transaction);
+        string parameters = AddT1T6ChartCenterParameters(command, sources, "$source");
+        command.CommandText = $"""
+            SELECT id, source, status, last_success_at, last_failure_at, failure_count, cooldown_until, last_error, updated_at
+            FROM market_source_status
+            WHERE source IN ({parameters})
+            ORDER BY source COLLATE NOCASE, updated_at DESC, id DESC;
+            """;
+        using SqliteDataReader reader = command.ExecuteReader();
+        var records = new List<MarketSourceStatusRecord>();
+        while (reader.Read())
+        {
+            records.Add(new MarketSourceStatusRecord
+            {
+                Id = reader.GetInt64(0),
+                Source = reader.GetString(1),
+                Status = reader.GetString(2),
+                LastSuccessAt = OptionalString(reader, 3),
+                LastFailureAt = OptionalString(reader, 4),
+                FailureCount = (int)reader.GetInt64(5),
+                CooldownUntil = OptionalString(reader, 6),
+                LastError = OptionalString(reader, 7),
+                UpdatedAt = reader.GetString(8)
+            });
+        }
+
+        return records
+            .GroupBy(record => record.Source.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(record => ParseSortTime(record.UpdatedAt))
+                .ThenByDescending(record => record.Id)
+                .First())
+            .OrderBy(record => record.Source, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static SqliteCommand CreateT1T6ChartCenterCommand(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        return command;
+    }
+
+    private static string AddT1T6ChartCenterParameters(
+        SqliteCommand command,
+        IEnumerable<string> values,
+        string prefix)
+    {
+        return string.Join(",", values.Select((value, index) =>
+        {
+            string name = prefix + index.ToString(CultureInfo.InvariantCulture);
+            command.Parameters.AddWithValue(name, value);
+            return name;
+        }));
+    }
+
     public IReadOnlyList<StrategyConfigRecord> ReadStrategyConfigs()
     {
         using var connection = _database.OpenConnection();
