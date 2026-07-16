@@ -7,10 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
-    <Version>8.10.2</Version>
-    <AssemblyVersion>8.10.2.0</AssemblyVersion>
-    <FileVersion>8.10.2.0</FileVersion>
-    <InformationalVersion>8.10.2</InformationalVersion>
+    <Version>8.10.3</Version>
+    <AssemblyVersion>8.10.3.0</AssemblyVersion>
+    <FileVersion>8.10.3.0</FileVersion>
+    <InformationalVersion>8.10.3</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

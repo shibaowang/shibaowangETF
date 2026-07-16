@@ -1,5 +1,12 @@
 # CrossETF.Terminal.UiShell.Reference
 
+## V8.10.3 release static validation tooling
+
+- V8.10.3 adds an explicit `ValidationMode` to `scripts/Publish-CrossEtfRelease.ps1`. `Launch` remains the default and retains the existing application and shortcut launch checks; `Static` performs the same publish and static package checks without starting any application EXE.
+- Both modes publish into same-volume staging, validate the final annotated tag identity, versions, assembly name, required runtime files, package pollution, executable SHA-256, and deterministic manifest hash before an atomic directory promotion.
+- Static validation example: `./scripts/Publish-CrossEtfRelease.ps1 -Version 8.10.3 -SourcePath <detached-tag-worktree> -ExpectedCommit <40-char-sha> -ValidationMode Static`. Add `-CreateDesktopShortcut` only when the validated shortcut should be atomically installed; Static never launches it.
+- This release-tooling change does not add or alter application business behavior. See `docs/TASK_RELEASE_STATIC_VALIDATION_029.md`.
+
 ## V8.10.2 clean-checkout test portability
 
 - V8.10.2 keeps the accepted V8.10.1 TradeLog atomic-save implementation unchanged and makes two source-structure tests independent of LF, CRLF, mixed, or CR-only line endings.
