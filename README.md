@@ -1,5 +1,11 @@
 # CrossETF.Terminal.UiShell.Reference
 
+## V8.10.2 clean-checkout test portability
+
+- V8.10.2 keeps the accepted V8.10.1 TradeLog atomic-save implementation unchanged and makes two source-structure tests independent of LF, CRLF, mixed, or CR-only line endings.
+- The pushed V8.10.1 tag remains unchanged and was not formally released because its final clean-checkout test gate failed. V8.10.2 carries the same production behavior through the corrected clean-checkout gate.
+- No production window, business service, database schema, `.gitattributes`, or Git configuration is changed by this portability patch. See `docs/TASK_CLEAN_CHECKOUT_TEST_PORTABILITY_032.md`.
+
 ## V8.10.1 TradeLog atomic save test build
 
 - TradeLog facts and the core account/position replay tables now save through one SQLite connection and one transaction, with one commit covering `trade_log`, `account_replay_state`, `account_replay_snapshot`, `position_replay_state`, and `otc_position_replay_state`.

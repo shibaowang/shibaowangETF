@@ -423,14 +423,21 @@ public sealed class SystemSettingsCenterTests
     [Fact]
     public void WindowConstructor_KeepsRequiredBuildLoadScopeAndHealthLifecycleOrder()
     {
-        string code = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
-        string constructor = Slice(code, "public ManualDataEntryWindow(\n        LocalDataRepository repository,", "public ManualEntryScope Scope");
+        string code = SourceTextTestHelper.NormalizeLineEndings(
+            ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs"));
+        string constructor = SourceTextTestHelper.Slice(
+            code,
+            "public ManualDataEntryWindow(\n        LocalDataRepository repository,",
+            "public ManualEntryScope Scope");
 
-        Assert.True(constructor.IndexOf("InitializeComponent();", StringComparison.Ordinal) < constructor.IndexOf("BuildTabs();", StringComparison.Ordinal));
-        Assert.True(constructor.IndexOf("BuildTabs();", StringComparison.Ordinal) < constructor.IndexOf("LoadData();", StringComparison.Ordinal));
-        Assert.True(constructor.IndexOf("LoadData();", StringComparison.Ordinal) < constructor.IndexOf("ApplyScope(scope);", StringComparison.Ordinal));
-        Assert.True(constructor.IndexOf("ApplyScope(scope);", StringComparison.Ordinal) < constructor.IndexOf("SnapshotAvailable +=", StringComparison.Ordinal));
-        Assert.Contains("Closed += ManualDataEntryWindow_RuntimeHealthClosed", constructor, StringComparison.Ordinal);
+        SourceTextTestHelper.RequireMarkersInOrder(
+            constructor,
+            "InitializeComponent();",
+            "BuildTabs();",
+            "LoadData();",
+            "ApplyScope(scope);",
+            "SnapshotAvailable +=",
+            "Closed += ManualDataEntryWindow_RuntimeHealthClosed");
     }
 
     [Fact]
@@ -449,10 +456,10 @@ public sealed class SystemSettingsCenterTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.10.1</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.10.1.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.10.1.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.1</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.2</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.10.2.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.10.2.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.2</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 
