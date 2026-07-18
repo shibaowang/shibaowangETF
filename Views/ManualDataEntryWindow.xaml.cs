@@ -118,6 +118,7 @@ public partial class ManualDataEntryWindow : Window
     private readonly LocalDataRepository _repository;
     private readonly string _databasePath;
     private readonly DatabaseBackupService _databaseBackupService;
+    private readonly WindowWhiteFlashGuard _whiteFlashGuard;
     private readonly RuntimeHealthMonitor? _runtimeHealthMonitor;
     private readonly ObservableCollection<StrategyConfigRecord> _strategies = new();
     private readonly ObservableCollection<PositionStateRecord> _positions = new();
@@ -214,10 +215,10 @@ public partial class ManualDataEntryWindow : Window
             Path.Combine(applicationDirectory, DatabaseBackupService.RestoreDirectoryName),
             MainWindow.ResolveDisplayVersion());
         InitializeComponent();
+        _whiteFlashGuard = WindowWhiteFlashGuard.Attach(this, ManualWindowBackgroundColor);
         SourceInitialized += (_, _) =>
         {
             TryApplyDarkTitleBar();
-            ApplyDarkHwndBackground();
         };
         DatabasePathText.Text = _databasePath;
         BuildTabs();
@@ -339,22 +340,6 @@ public partial class ManualDataEntryWindow : Window
         catch
         {
             // Keep the native title bar unchanged on Windows builds without this DWM attribute.
-        }
-    }
-
-    private void ApplyDarkHwndBackground()
-    {
-        try
-        {
-            if (PresentationSource.FromVisual(this) is HwndSource source
-                && source.CompositionTarget is not null)
-            {
-                source.CompositionTarget.BackgroundColor = ManualWindowBackgroundColor;
-            }
-        }
-        catch
-        {
-            // DWM dark mode still keeps the visible frame dark if HwndSource is unavailable.
         }
     }
 

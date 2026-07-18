@@ -543,10 +543,10 @@ public sealed class TradeLogWorkspaceUiTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.10.3</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.10.3.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.10.3.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.3</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.5</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.10.5.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.10.5.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.5</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 

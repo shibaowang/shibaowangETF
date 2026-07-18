@@ -19,6 +19,7 @@ public partial class MarketMonitorWindow : Window
     private readonly LocalDataRepository _repository;
     private readonly MarketMonitorSnapshotBuilder _snapshotBuilder = new();
     private readonly DispatcherTimer _localRefreshTimer;
+    private readonly WindowWhiteFlashGuard _whiteFlashGuard;
     private MarketMonitorSnapshot? _lastSnapshot;
     private string _activeFilter = MarketMonitorSnapshotBuilder.AllFilter;
     private bool _closed;
@@ -27,10 +28,10 @@ public partial class MarketMonitorWindow : Window
     {
         _repository = repository;
         InitializeComponent();
+        _whiteFlashGuard = WindowWhiteFlashGuard.Attach(this, MarketMonitorWindowBackgroundColor);
         SourceInitialized += (_, _) =>
         {
             TryApplyDarkTitleBar();
-            ApplyDarkHwndBackground();
         };
         _localRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
@@ -132,22 +133,6 @@ public partial class MarketMonitorWindow : Window
         catch
         {
             // Unsupported DWM attributes leave the native frame unchanged.
-        }
-    }
-
-    private void ApplyDarkHwndBackground()
-    {
-        try
-        {
-            if (PresentationSource.FromVisual(this) is HwndSource source
-                && source.CompositionTarget is not null)
-            {
-                source.CompositionTarget.BackgroundColor = MarketMonitorWindowBackgroundColor;
-            }
-        }
-        catch
-        {
-            // Keep the first client frame hidden if the HWND background cannot be changed.
         }
     }
 

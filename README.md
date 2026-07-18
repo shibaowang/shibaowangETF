@@ -1,5 +1,12 @@
 # CrossETF.Terminal.UiShell.Reference
 
+## V8.10.5 five-window first-frame white-flash test build
+
+- V8.10.5 unifies the native first-frame background handling for the T1-T6 chart center, capital position center, indicator drawdown center, premium decision window, and market monitor center.
+- Each target window keeps its existing opaque `#050B14` WPF window/root background and native title bar. A shared `WindowWhiteFlashGuard` sets the `HwndSource` composition background during `SourceInitialized` and handles `WM_ERASEBKGND` with a per-window deep-color GDI brush until WPF paints the client area.
+- The guard is idempotent, removes its hook when the window/source closes, and disposes the native brush. It does not hide windows, delay `Show`, change `WindowChrome`, load data, access SQLite/network services, or alter window ownership, singleton, refresh, or business behavior.
+- This remains an uncommitted test build pending real-machine acceptance. The formal V8.10.3 release directory and desktop shortcut are unchanged. See `docs/TASK_WINDOW_WHITE_FLASH_030.md`.
+
 ## V8.10.3 release static validation tooling
 
 - V8.10.3 adds an explicit `ValidationMode` to `scripts/Publish-CrossEtfRelease.ps1`. `Launch` remains the default and retains the existing application and shortcut launch checks; `Static` performs the same publish and static package checks without starting any application EXE.

@@ -51,10 +51,10 @@ public sealed class MarketMonitorWindowTests
     {
         string[] fragments =
         {
-            "<Version>8.10.3</Version>",
-            "<AssemblyVersion>8.10.3.0</AssemblyVersion>",
-            "<FileVersion>8.10.3.0</FileVersion>",
-            "<InformationalVersion>8.10.3</InformationalVersion>"
+            "<Version>8.10.5</Version>",
+            "<AssemblyVersion>8.10.5.0</AssemblyVersion>",
+            "<FileVersion>8.10.5.0</FileVersion>",
+            "<InformationalVersion>8.10.5</InformationalVersion>"
         };
         return fragments.Select(fragment => new object[] { fragment });
     }
@@ -231,15 +231,16 @@ public sealed class MarketMonitorWindowTests
     }
 
     [Fact]
-    public void Window_ReplicatesStableManualWindowDwmAndHwndBackgroundOrder()
+    public void Window_UsesUnifiedFirstFrameGuardAndKeepsExistingDwmContract()
     {
         string code = ReadRepositoryFile("Views", "MarketMonitorWindow.xaml.cs");
 
         string manualCode = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
         string constructor = Extract(code, "public MarketMonitorWindow(LocalDataRepository repository)", "private void MarketMonitorWindow_Loaded");
         Assert.Contains("SourceInitialized += (_, _) =>", constructor, StringComparison.Ordinal);
-        Assert.True(constructor.IndexOf("TryApplyDarkTitleBar();", StringComparison.Ordinal)
-                    < constructor.IndexOf("ApplyDarkHwndBackground();", StringComparison.Ordinal));
+        Assert.True(constructor.IndexOf("InitializeComponent();", StringComparison.Ordinal)
+                    < constructor.IndexOf("WindowWhiteFlashGuard.Attach(this, MarketMonitorWindowBackgroundColor);", StringComparison.Ordinal));
+        Assert.Contains("TryApplyDarkTitleBar();", constructor, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 20", code, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 19", code, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 34", code, StringComparison.Ordinal);
@@ -248,16 +249,16 @@ public sealed class MarketMonitorWindowTests
         Assert.Contains("DwmSetWindowAttribute(hwnd, 34", manualCode, StringComparison.Ordinal);
         Assert.DoesNotContain("DwmSetWindowAttribute(hwnd, 35", code, StringComparison.Ordinal);
         Assert.DoesNotContain("DwmSetWindowAttribute(hwnd, 36", code, StringComparison.Ordinal);
-        string darkTitleBar = Extract(code, "private void TryApplyDarkTitleBar()", "private void ApplyDarkHwndBackground()");
-        string darkBackground = Extract(code, "private void ApplyDarkHwndBackground()", "private static int ToColorRef");
-        Assert.Contains("source.CompositionTarget.BackgroundColor = MarketMonitorWindowBackgroundColor;", darkBackground, StringComparison.Ordinal);
+        string darkTitleBar = Extract(code, "private void TryApplyDarkTitleBar()", "private static int ToColorRef");
+        Assert.Contains("WindowWhiteFlashGuard.Attach(this, MarketMonitorWindowBackgroundColor);", code, StringComparison.Ordinal);
+        Assert.Contains("WindowWhiteFlashGuard.Attach(this, ManualWindowBackgroundColor);", manualCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyDarkHwndBackground", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("CompositionTarget.BackgroundColor", code, StringComparison.Ordinal);
         Assert.Contains("Color.FromRgb(0x05, 0x0B, 0x14)", code, StringComparison.Ordinal);
         Assert.Contains("catch", darkTitleBar, StringComparison.Ordinal);
-        Assert.Contains("catch", darkBackground, StringComparison.Ordinal);
         Assert.DoesNotContain("MessageBox", code, StringComparison.Ordinal);
         Assert.DoesNotContain("WriteRuntimeLog", code, StringComparison.Ordinal);
         Assert.DoesNotContain("throw", darkTitleBar, StringComparison.Ordinal);
-        Assert.DoesNotContain("throw", darkBackground, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -546,7 +547,7 @@ public sealed class MarketMonitorWindowTests
         string settings = ReadRepositoryFile("Views", "ManualDataEntryWindow.xaml.cs");
 
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
-        Assert.Equal("V8.10.3", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("V8.10.5", MainWindow.ResolveDisplayVersion());
         Assert.Contains("AssemblyInformationalVersionAttribute", main, StringComparison.Ordinal);
         Assert.Contains("(\"当前版本\", MainWindow.ResolveDisplayVersion())", settings, StringComparison.Ordinal);
     }

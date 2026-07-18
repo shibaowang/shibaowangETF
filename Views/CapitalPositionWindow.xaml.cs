@@ -18,6 +18,7 @@ public partial class CapitalPositionWindow : Window
     private readonly LocalDataRepository _repository;
     private readonly CapitalPositionSnapshotBuilder _snapshotBuilder = new();
     private readonly DispatcherTimer _localRefreshTimer;
+    private readonly WindowWhiteFlashGuard _whiteFlashGuard;
     private CapitalPositionSnapshot? _lastSnapshot;
     private bool _closed;
 
@@ -25,10 +26,10 @@ public partial class CapitalPositionWindow : Window
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         InitializeComponent();
+        _whiteFlashGuard = WindowWhiteFlashGuard.Attach(this, CapitalWindowBackgroundColor);
         SourceInitialized += (_, _) =>
         {
             TryApplyDarkTitleBar();
-            ApplyDarkHwndBackground();
         };
         _localRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
@@ -134,22 +135,6 @@ public partial class CapitalPositionWindow : Window
         catch
         {
             // Unsupported DWM attributes leave the native frame unchanged.
-        }
-    }
-
-    private void ApplyDarkHwndBackground()
-    {
-        try
-        {
-            if (PresentationSource.FromVisual(this) is HwndSource source
-                && source.CompositionTarget is not null)
-            {
-                source.CompositionTarget.BackgroundColor = CapitalWindowBackgroundColor;
-            }
-        }
-        catch
-        {
-            // Keep the first client frame hidden if the HWND background cannot be changed.
         }
     }
 

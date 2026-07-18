@@ -115,7 +115,7 @@ public sealed class CapitalPositionWindowTests
     }
 
     [Fact]
-    public void Window_RootAndCompositionTargetUseSameDarkBackgroundInRequiredOrder()
+    public void Window_RootAndUnifiedFirstFrameGuardUseSameDarkBackground()
     {
         string xaml = ReadRepositoryFile("Views", "CapitalPositionWindow.xaml");
         string code = ReadRepositoryFile("Views", "CapitalPositionWindow.xaml.cs");
@@ -123,9 +123,11 @@ public sealed class CapitalPositionWindowTests
 
         Assert.Contains("<Grid Margin=\"14\" Background=\"#050B14\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Color.FromRgb(0x05, 0x0B, 0x14)", code, StringComparison.Ordinal);
-        Assert.True(constructor.IndexOf("TryApplyDarkTitleBar();", StringComparison.Ordinal)
-                    < constructor.IndexOf("ApplyDarkHwndBackground();", StringComparison.Ordinal));
-        Assert.Contains("source.CompositionTarget.BackgroundColor = CapitalWindowBackgroundColor;", code, StringComparison.Ordinal);
+        Assert.True(constructor.IndexOf("InitializeComponent();", StringComparison.Ordinal)
+                    < constructor.IndexOf("WindowWhiteFlashGuard.Attach(this, CapitalWindowBackgroundColor);", StringComparison.Ordinal));
+        Assert.Contains("TryApplyDarkTitleBar();", constructor, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyDarkHwndBackground", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("CompositionTarget.BackgroundColor", code, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 20", code, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 19", code, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 34", code, StringComparison.Ordinal);
@@ -442,12 +444,12 @@ public sealed class CapitalPositionWindowTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.10.3</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.10.3.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.10.3.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.3</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.5</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.10.5.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.10.5.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.5</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
-        Assert.Equal("V8.10.3", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("V8.10.5", MainWindow.ResolveDisplayVersion());
     }
 
     [Fact]

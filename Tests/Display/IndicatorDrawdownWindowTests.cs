@@ -201,15 +201,17 @@ public sealed class IndicatorDrawdownWindowTests
     }
 
     [Fact]
-    public void Window_AppliesDarkDwmThenHwndBackgroundAndPreloadsBeforeShow()
+    public void Window_AttachesUnifiedFirstFrameGuardAndPreloadsBeforeShow()
     {
         string code = ReadRepositoryFile("Views", "IndicatorDrawdownWindow.xaml.cs");
         string sourceInitialized = Extract(code, "private void IndicatorDrawdownWindow_SourceInitialized", "private void IndicatorDrawdownWindow_Loaded");
         string constructor = Extract(code, "public IndicatorDrawdownWindow", "private void IndicatorDrawdownWindow_SourceInitialized");
 
-        Assert.True(sourceInitialized.IndexOf("TryApplyDarkTitleBar();", StringComparison.Ordinal)
-                    < sourceInitialized.IndexOf("ApplyDarkHwndBackground();", StringComparison.Ordinal));
-        Assert.Contains("CompositionTarget.BackgroundColor = IndicatorWindowBackgroundColor", code, StringComparison.Ordinal);
+        Assert.True(constructor.IndexOf("InitializeComponent();", StringComparison.Ordinal)
+                    < constructor.IndexOf("WindowWhiteFlashGuard.Attach(this, IndicatorWindowBackgroundColor);", StringComparison.Ordinal));
+        Assert.Contains("TryApplyDarkTitleBar();", sourceInitialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyDarkHwndBackground", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("CompositionTarget.BackgroundColor", code, StringComparison.Ordinal);
         Assert.Contains("Color.FromRgb(0x05, 0x0B, 0x14)", code, StringComparison.Ordinal);
         Assert.Contains("LoadInitialSnapshotBeforeShow();", constructor, StringComparison.Ordinal);
         Assert.Contains("ApplySnapshot(_lastSnapshot);", code, StringComparison.Ordinal);

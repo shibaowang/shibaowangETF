@@ -23,6 +23,7 @@ public partial class IndicatorDrawdownWindow : Window
     private readonly IndicatorDrawdownMetricsBuilder _metricsBuilder = new();
     private readonly DispatcherTimer _localRefreshTimer;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private readonly WindowWhiteFlashGuard _whiteFlashGuard;
     private IndicatorDrawdownSnapshot? _lastSnapshot;
     private Dictionary<string, string> _historyMetadataSignatures = new(StringComparer.OrdinalIgnoreCase);
     private string _activeFilter = IndicatorDrawdownSnapshotBuilder.AllFilter;
@@ -34,6 +35,7 @@ public partial class IndicatorDrawdownWindow : Window
     {
         _repository = repository;
         InitializeComponent();
+        _whiteFlashGuard = WindowWhiteFlashGuard.Attach(this, IndicatorWindowBackgroundColor);
         SourceInitialized += IndicatorDrawdownWindow_SourceInitialized;
         _localRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
@@ -44,10 +46,7 @@ public partial class IndicatorDrawdownWindow : Window
     }
 
     private void IndicatorDrawdownWindow_SourceInitialized(object? sender, EventArgs e)
-    {
-        TryApplyDarkTitleBar();
-        ApplyDarkHwndBackground();
-    }
+        => TryApplyDarkTitleBar();
 
     private void IndicatorDrawdownWindow_Loaded(object sender, RoutedEventArgs e)
         => _localRefreshTimer.Start();
@@ -388,22 +387,6 @@ public partial class IndicatorDrawdownWindow : Window
         catch
         {
             // Unsupported DWM attributes leave the native frame unchanged.
-        }
-    }
-
-    private void ApplyDarkHwndBackground()
-    {
-        try
-        {
-            if (PresentationSource.FromVisual(this) is HwndSource source
-                && source.CompositionTarget is not null)
-            {
-                source.CompositionTarget.BackgroundColor = IndicatorWindowBackgroundColor;
-            }
-        }
-        catch
-        {
-            // The deep client background remains in place if the HWND background cannot be changed.
         }
     }
 

@@ -22,6 +22,7 @@ public partial class T1T6ChartCenterWindow : Window
     private readonly T1T6ChartCenterSnapshotBuilder _snapshotBuilder = new();
     private readonly ObservableCollection<T1T6StrategyRow> _strategyRows = new();
     private readonly DispatcherTimer _localRefreshTimer;
+    private readonly WindowWhiteFlashGuard _whiteFlashGuard;
     private T1T6ChartCenterReadModel _lastReadModel;
     private T1T6ChartCenterSnapshot _lastSnapshot;
     private bool _applyingSnapshot;
@@ -39,6 +40,7 @@ public partial class T1T6ChartCenterWindow : Window
         _lastSnapshot = initialSnapshot ?? throw new ArgumentNullException(nameof(initialSnapshot));
 
         InitializeComponent();
+        _whiteFlashGuard = WindowWhiteFlashGuard.Attach(this, WindowBackgroundColor);
         SourceInitialized += T1T6ChartCenterWindow_SourceInitialized;
         StrategyList.ItemsSource = _strategyRows;
         ApplySnapshot(initialSnapshot, preserveScroll: false);
@@ -51,10 +53,7 @@ public partial class T1T6ChartCenterWindow : Window
     }
 
     private void T1T6ChartCenterWindow_SourceInitialized(object? sender, EventArgs e)
-    {
-        TryApplyDarkTitleBar();
-        ApplyDarkHwndBackground();
-    }
+        => TryApplyDarkTitleBar();
 
     private void T1T6ChartCenterWindow_Loaded(object sender, RoutedEventArgs e)
         => _localRefreshTimer.Start();
@@ -244,22 +243,6 @@ public partial class T1T6ChartCenterWindow : Window
         catch
         {
             // Unsupported DWM attributes leave the native frame unchanged.
-        }
-    }
-
-    private void ApplyDarkHwndBackground()
-    {
-        try
-        {
-            if (PresentationSource.FromVisual(this) is HwndSource source
-                && source.CompositionTarget is not null)
-            {
-                source.CompositionTarget.BackgroundColor = WindowBackgroundColor;
-            }
-        }
-        catch
-        {
-            // The opaque WPF root remains dark if the HWND background cannot be changed.
         }
     }
 

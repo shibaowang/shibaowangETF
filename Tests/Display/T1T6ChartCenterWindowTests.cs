@@ -44,14 +44,17 @@ public sealed class T1T6ChartCenterWindowTests
     }
 
     [Fact]
-    public void Window_AppliesDwmThenCompositionBackgroundInSourceInitialized()
+    public void Window_AttachesUnifiedFirstFrameGuardAndKeepsDwmTitleBarHandling()
     {
         string source = ReadRepositoryFile("Views", "T1T6ChartCenterWindow.xaml.cs");
+        string constructor = Extract(source, "public T1T6ChartCenterWindow(", "private void T1T6ChartCenterWindow_SourceInitialized");
         string handler = Extract(source, "private void T1T6ChartCenterWindow_SourceInitialized", "private void T1T6ChartCenterWindow_Loaded");
 
-        Assert.True(handler.IndexOf("TryApplyDarkTitleBar();", StringComparison.Ordinal)
-                    < handler.IndexOf("ApplyDarkHwndBackground();", StringComparison.Ordinal));
-        Assert.Contains("CompositionTarget.BackgroundColor = WindowBackgroundColor", source, StringComparison.Ordinal);
+        Assert.True(constructor.IndexOf("InitializeComponent();", StringComparison.Ordinal)
+                    < constructor.IndexOf("WindowWhiteFlashGuard.Attach(this, WindowBackgroundColor);", StringComparison.Ordinal));
+        Assert.Contains("TryApplyDarkTitleBar();", handler, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApplyDarkHwndBackground", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("CompositionTarget.BackgroundColor", source, StringComparison.Ordinal);
         Assert.Contains("Color.FromRgb(0x05, 0x0B, 0x14)", source, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 34", source, StringComparison.Ordinal);
     }

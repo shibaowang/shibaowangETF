@@ -64,7 +64,7 @@ public sealed class DialogInteractionEffectsTests
         Assert.DoesNotContain("TitleMaximizeButton_Click", manualCode, StringComparison.Ordinal);
         Assert.DoesNotContain("ConfigureTitleBarButtons", manualCode, StringComparison.Ordinal);
         Assert.Contains("DwmSetWindowAttribute(hwnd, 34", manualCode, StringComparison.Ordinal);
-        Assert.Contains("ApplyDarkHwndBackground", manualCode, StringComparison.Ordinal);
+        Assert.Contains("WindowWhiteFlashGuard.Attach(this, ManualWindowBackgroundColor)", manualCode, StringComparison.Ordinal);
         Assert.DoesNotContain("Opacity = 0", manualCode, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("DarkStartupShield", manualXaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Content = null", manualCode, StringComparison.OrdinalIgnoreCase);
