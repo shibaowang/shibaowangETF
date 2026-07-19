@@ -1,5 +1,13 @@
 # CrossETF.Terminal.UiShell.Reference
 
+## V8.10.5 Windows installer packaging
+
+- `scripts/Build-CrossEtfInstaller.ps1` packages the accepted `v8.10.5` annotated tag from a clean detached worktree into a win-x64, self-contained, non-single-file Inno Setup installer.
+- The Simplified Chinese Inno Setup messages are vendored from the official `jrsoftware/issrc` repository at commit `c495623a97376d524f298b1b160e8fd612375c62`, so packaging does not download language files at build time.
+- The installer uses per-user installation at `%LocalAppData%\Programs\CrossETF`, creates a Start menu shortcut and an optional desktop shortcut, and never packages or removes the application data directory under `%LocalAppData%\CrossETF.Terminal.UiShell.Reference`.
+- Build example: `./scripts/Build-CrossEtfInstaller.ps1 -Version 8.10.5 -SourcePath <detached-tag-worktree> -ExpectedCommit <40-char-tag-commit> -OutputRoot D:\shibaowangETF\artifacts\installer`.
+- The installer is currently unsigned; Windows SmartScreen may identify it as coming from an unknown publisher. See `docs/TASK_INSTALLER_PACKAGING_031.md`.
+
 ## V8.10.5 five-window first-frame white-flash test build
 
 - V8.10.5 unifies the native first-frame background handling for the T1-T6 chart center, capital position center, indicator drawdown center, premium decision window, and market monitor center.
