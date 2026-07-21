@@ -456,10 +456,10 @@ public sealed class SystemSettingsCenterTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.10.8</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.10.8.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.10.8.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.8</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.9</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.10.9.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.10.9.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.9</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
     }
 

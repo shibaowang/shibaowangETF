@@ -2417,9 +2417,18 @@ public partial class MainWindow : Window
             double manualCostAmount = manualPositions.Sum(position => position.CostAmount);
             double quantity = hasReplayPositions ? replayCostMetrics.TotalQuantity : manualQuantity;
             double costAmount = hasReplayPositions ? replayCostMetrics.TotalCostAmount : manualCostAmount;
-            double averageCost = hasReplayPositions
+            BrokerHoldingPnlMetrics? brokerHoldingMetrics = _tradeLogs.Count > 0
+                ? BrokerHoldingPnlCalculator.Calculate(
+                    strategy.Code,
+                    _tradeLogs,
+                    replayPositions,
+                    replayOtcPositions,
+                    _marketQuotes)
+                : null;
+            double averageCost = brokerHoldingMetrics?.DilutedAverageCost
+                                 ?? (hasReplayPositions
                 ? replayCostMetrics.AverageCost
-                : manualQuantity > 0 ? manualCostAmount / manualQuantity : 0;
+                : manualQuantity > 0 ? manualCostAmount / manualQuantity : 0);
             double? premiumRate = EtfDecisionTableMetrics.CalculatePremiumRate(etfQuote);
             double principal = _tradeLogs.Count > 0 ? _accountReplayState?.Principal ?? 0 : _accountState?.Principal ?? 0;
             bool replayQuoteComplete = replayPositions.Length > 0 && replayPositions.All(position => position.MarketValue.HasValue);
@@ -2431,8 +2440,10 @@ public partial class MainWindow : Window
             double? knownMarketValue = replayQuoteComplete
                 ? replayPositions.Sum(position => position.MarketValue!.Value)
                 : null;
-            double? holdingPnl = EtfDecisionTableMetrics.CalculateHoldingPnl(knownMarketValue, costAmount);
-            double? holdingRate = EtfDecisionTableMetrics.CalculateHoldingReturnRate(holdingPnl, costAmount);
+            double? holdingPnl = brokerHoldingMetrics?.BrokerHoldingPnl
+                                 ?? EtfDecisionTableMetrics.CalculateHoldingPnl(knownMarketValue, costAmount);
+            double? holdingRate = brokerHoldingMetrics?.BrokerHoldingReturnRate
+                                  ?? EtfDecisionTableMetrics.CalculateHoldingReturnRate(holdingPnl, costAmount);
             double? principalRatio = EtfDecisionTableMetrics.CalculatePrincipalRatio(costAmount, principal);
             double adjFactor = hasReplayPositions
                 ? replayPositions
