@@ -34,10 +34,10 @@ public class MainWindowDisplayTextTests
         Assert.DoesNotContain("V8.0.0", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"VersionText\"", xaml, StringComparison.Ordinal);
         Assert.Contains("VersionText.Text = BuildVersionDisplayText();", code, StringComparison.Ordinal);
-        Assert.Contains("<Version>8.10.9</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.9</InformationalVersion>", project, StringComparison.Ordinal);
-        Assert.Equal("V8.10.9", MainWindow.ResolveDisplayVersion());
-        Assert.Equal("版本： V8.10.9", MainWindow.BuildVersionDisplayText());
+        Assert.Contains("<Version>8.10.10</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.10</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Equal("V8.10.10", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("版本： V8.10.10", MainWindow.BuildVersionDisplayText());
     }
 
     private static string ReadRepositoryFile(string relativePath)

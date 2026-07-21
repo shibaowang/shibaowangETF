@@ -39,7 +39,11 @@ public partial class MainWindow : Window
     private static readonly Color Muted = ColorFrom("#9CAFC3");
     private static readonly Color Border = ColorFrom("#18324A");
     private const double EtfHeaderDragThreshold = 6;
-    private bool _refreshQueued;
+    private readonly MainWindowUiRefreshCoordinator _uiRefreshCoordinator = new();
+    private readonly Dictionary<string, EtfCellReference> _etfCellIndex = new(StringComparer.OrdinalIgnoreCase);
+    private string? _etfStructureSignature;
+    private System.Windows.Shapes.Path? _ringProgressPath;
+    private bool _poolInitialized;
     private int[] _etfColumnOrder = Array.Empty<int>();
     private IReadOnlyList<string> _visibleEtfColumnKeys = EtfDecisionColumnSettings.DefaultVisibleKeys;
     private IReadOnlyList<string> _pinnedEtfSymbols = Array.Empty<string>();
@@ -117,6 +121,8 @@ public partial class MainWindow : Window
     private RiskCenterWindow? _riskCenterWindow;
     private readonly Dictionary<string, DateTimeOffset> _strategyRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _orderRuntimeLogLastAt = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed record EtfCellReference(Border Border, TextBlock TextBlock);
 
     public MainWindow()
     {
@@ -386,21 +392,13 @@ public partial class MainWindow : Window
 
     private void QueueResponsiveRedraw()
     {
-        if (_refreshQueued)
-        {
-            return;
-        }
-
-        _refreshQueued = true;
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            _refreshQueued = false;
-            DrawSparklines();
-            DrawDrawdownCharts();
-            BuildEtfTable();
-            BuildOrderDraftPanel();
-            BuildTradeLog();
-        }), System.Windows.Threading.DispatcherPriority.Loaded);
+        QueueUiRefresh(
+            MainWindowDirtyFlags.Sparklines
+            | MainWindowDirtyFlags.Drawdown
+            | MainWindowDirtyFlags.EtfTable
+            | MainWindowDirtyFlags.OrderDraft
+            | MainWindowDirtyFlags.TradeLog,
+            DispatcherPriority.Loaded);
     }
 
     private void RefreshTimer_Tick(object? sender, EventArgs e)
@@ -416,7 +414,26 @@ public partial class MainWindow : Window
         _refreshTimer.Start();
     }
 
-    private void RefreshLocalDataAndUi()
+    private void QueueUiRefresh(
+        MainWindowDirtyFlags flags,
+        DispatcherPriority priority = DispatcherPriority.Background)
+    {
+        if (!_uiRefreshCoordinator.Request(flags))
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            MainWindowDirtyFlags pending = _uiRefreshCoordinator.TakePending();
+            if (pending != MainWindowDirtyFlags.None)
+            {
+                RefreshLocalDataAndUi(pending);
+            }
+        }), priority);
+    }
+
+    private void RefreshLocalDataAndUi(MainWindowDirtyFlags dirtyFlags = MainWindowDirtyFlags.All)
     {
         _runtimeHealthMonitor.NotifyUiRefreshStarted();
         var healthStopwatch = Stopwatch.StartNew();
@@ -476,17 +493,17 @@ public partial class MainWindow : Window
                 TryWriteRuntimeLog("ERROR", "MainWindow", "本地数据库读取失败", ex.ToString());
             }
 
-            UpdateRuntimeStatus();
-            UpdateTopMarketQuotes();
-            UpdateAccountCards();
-            UpdateOtcPanel();
-            DrawSparklines();
-            DrawRing();
-            DrawPool();
-            DrawDrawdownCharts();
-            BuildEtfTable();
-            BuildOrderDraftPanel();
-            BuildTradeLog();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Runtime)) UpdateRuntimeStatus();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.TopQuotes)) UpdateTopMarketQuotes();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Account)) UpdateAccountCards();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Otc)) UpdateOtcPanel();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Sparklines)) DrawSparklines();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Ring)) DrawRing();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Pool)) DrawPool();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.Drawdown)) DrawDrawdownCharts();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.EtfTable)) BuildEtfTable();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.OrderDraft)) BuildOrderDraftPanel();
+            if (dirtyFlags.HasFlag(MainWindowDirtyFlags.TradeLog)) BuildTradeLog();
             refreshSucceeded = localReadSucceeded;
         }
         finally
@@ -540,8 +557,7 @@ public partial class MainWindow : Window
         }
 
         _marketQuotes = latestQuotes;
-        UpdateTopMarketQuotes();
-        DrawDrawdownCharts();
+        QueueUiRefresh(MainWindowDirtyFlags.TopQuotes | MainWindowDirtyFlags.Drawdown | MainWindowDirtyFlags.EtfTable);
     }
 
     private void QueueChartRefresh()
@@ -629,7 +645,12 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                RefreshLocalDataAndUi();
+                QueueUiRefresh(
+                    MainWindowDirtyFlags.Account
+                    | MainWindowDirtyFlags.EtfTable
+                    | MainWindowDirtyFlags.Sparklines
+                    | MainWindowDirtyFlags.Ring
+                    | MainWindowDirtyFlags.OrderDraft);
             }));
         });
     }
@@ -713,7 +734,7 @@ public partial class MainWindow : Window
                     TryWriteStrategyRuntimeLog(warning);
                 }
 
-                RefreshLocalDataAndUi();
+                QueueUiRefresh(MainWindowDirtyFlags.EtfTable | MainWindowDirtyFlags.OrderDraft);
             }));
         });
     }
@@ -768,7 +789,7 @@ public partial class MainWindow : Window
                     TryWriteOrderRuntimeLog(warning);
                 }
 
-                RefreshLocalDataAndUi();
+                QueueUiRefresh(MainWindowDirtyFlags.EtfTable | MainWindowDirtyFlags.OrderDraft);
             }));
         });
     }
@@ -1862,6 +1883,21 @@ public partial class MainWindow : Window
 
     private void DrawSparklines()
     {
+        string signature = string.Join('|',
+            Math.Round(Spark1.ActualWidth, 1),
+            Math.Round(Spark1.ActualHeight, 1),
+            Math.Round(Spark2.ActualWidth, 1),
+            Math.Round(Spark2.ActualHeight, 1),
+            string.Join(';', _accountReplaySnapshots.Select(record => string.Join(',',
+                record.Id,
+                record.CreatedAt,
+                record.TotalAssets?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty,
+                (record.TotalPnl ?? record.TotalUnrealizedPnl)?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty))));
+        if (!_uiRefreshCoordinator.ShouldRender("sparklines", signature))
+        {
+            return;
+        }
+
         DrawSparkline(
             Spark1,
             SparklineSeriesBuilder.Build(_accountReplaySnapshots, record => record.TotalAssets),
@@ -1947,21 +1983,39 @@ public partial class MainWindow : Window
 
     private void DrawRing()
     {
-        RingCanvas.Children.Clear();
         const double centerX = 52;
         const double centerY = 52;
         const double radius = 46;
         const double strokeThickness = 13;
-
-        RingCanvas.Children.Add(new System.Windows.Shapes.Path
-        {
-            Data = new EllipseGeometry(new Point(centerX, centerY), radius, radius),
-            Stroke = BrushFrom("#183249"),
-            StrokeThickness = strokeThickness,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round
-        });
         double ratio = GetBaseCompletionRatio();
+        string signature = ratio.ToString("R", CultureInfo.InvariantCulture);
+        if (!_uiRefreshCoordinator.ShouldRender("ring", signature))
+        {
+            return;
+        }
+
+        if (_ringProgressPath is null)
+        {
+            RingCanvas.Children.Clear();
+            RingCanvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = new EllipseGeometry(new Point(centerX, centerY), radius, radius),
+                Stroke = BrushFrom("#183249"),
+                StrokeThickness = strokeThickness,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            });
+            _ringProgressPath = new System.Windows.Shapes.Path
+            {
+                Stroke = new LinearGradientBrush(Blue, ColorFrom("#7B4CFF"), 0),
+                StrokeThickness = strokeThickness,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            };
+            RingCanvas.Children.Add(_ringProgressPath);
+        }
+
+        _ringProgressPath.Visibility = ratio > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (ratio <= 0)
         {
             return;
@@ -1970,19 +2024,17 @@ public partial class MainWindow : Window
         Geometry progressGeometry = ratio >= 0.999
             ? new EllipseGeometry(new Point(centerX, centerY), radius, radius)
             : Arc(centerX, centerY, radius, -90, -90 + 360 * ratio);
-
-        RingCanvas.Children.Add(new System.Windows.Shapes.Path
-        {
-            Data = progressGeometry,
-            Stroke = new LinearGradientBrush(Blue, ColorFrom("#7B4CFF"), 0),
-            StrokeThickness = strokeThickness,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round
-        });
+        _ringProgressPath.Data = progressGeometry;
     }
 
     private void DrawPool()
     {
+        if (_poolInitialized)
+        {
+            return;
+        }
+
+        _poolInitialized = true;
         PoolCanvas.Children.Clear();
         double x = 11;
         double top = 12;
@@ -2073,6 +2125,28 @@ public partial class MainWindow : Window
 
     private void DrawDrawdownCharts()
     {
+        string signature = string.Join('|',
+            Math.Round((LeftChartCanvas.Parent as FrameworkElement)?.ActualWidth ?? 0, 1),
+            Math.Round((RightChartCanvas.Parent as FrameworkElement)?.ActualWidth ?? 0, 1),
+            string.Join(';', _marketHistory.Select(record => string.Join(',',
+                record.Symbol,
+                record.MarketType,
+                record.QuoteTime,
+                record.Price?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty,
+                record.HighValue?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty))),
+            string.Join(';', _marketQuotes
+                .Where(record => record.Symbol.Contains("NDX", StringComparison.OrdinalIgnoreCase)
+                                 || record.Symbol.Contains("251.", StringComparison.OrdinalIgnoreCase)
+                                 || record.Symbol.Contains("100.", StringComparison.OrdinalIgnoreCase))
+                .Select(record => string.Join(',',
+                    record.Symbol,
+                    record.QuoteTime,
+                    record.Price?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty))));
+        if (!_uiRefreshCoordinator.ShouldRender("drawdown", signature))
+        {
+            return;
+        }
+
         DrawChart(LeftChartCanvas, LeftChartStatusText, true, IndexDrawdownChartSeriesBuilder.LeftChartSymbol, "纳指科技增强");
         DrawChart(RightChartCanvas, RightChartStatusText, false, IndexDrawdownChartSeriesBuilder.RightChartSymbol, "纳斯达克100");
     }
@@ -2258,16 +2332,6 @@ public partial class MainWindow : Window
 
     private void BuildEtfTable()
     {
-        EtfTableGrid.Children.Clear();
-        EtfTableGrid.RowDefinitions.Clear();
-        EtfTableGrid.ColumnDefinitions.Clear();
-        EtfTableGrid.ClipToBounds = true;
-        EtfTableGrid.MouseMove -= EtfTableGrid_MouseMove;
-        EtfTableGrid.MouseLeftButtonUp -= EtfTableGrid_MouseLeftButtonUp;
-        EtfTableGrid.LostMouseCapture -= EtfTableGrid_LostMouseCapture;
-        EtfTableGrid.MouseMove += EtfTableGrid_MouseMove;
-        EtfTableGrid.MouseLeftButtonUp += EtfTableGrid_MouseLeftButtonUp;
-        EtfTableGrid.LostMouseCapture += EtfTableGrid_LostMouseCapture;
         IReadOnlyList<EtfDecisionColumnDefinition> allColumns = EtfDecisionColumnSettings.AllColumns;
         IReadOnlyList<EtfDecisionColumnDefinition> visibleColumns = EtfDecisionColumnSettings.ResolveVisibleColumns(_visibleEtfColumnKeys);
         HashSet<int> visibleSourceColumns = visibleColumns.Select(column => column.SourceIndex).ToHashSet();
@@ -2289,6 +2353,34 @@ public partial class MainWindow : Window
             .Select(sourceColumn => allColumns.First(column => column.SourceIndex == sourceColumn))
             .ToArray();
         double[] orderedWidths = orderedColumns.Select(column => column.PreferredWidth).ToArray();
+
+        string structureSignature = string.Join('|',
+            string.Join(',', orderedColumns.Select(column => column.Key)),
+            string.Join(',', displayRows.Select(row => row.Length > 0 ? NormalizePinnedEtfSymbol(row[0]) : string.Empty)),
+            string.Join(',', _pinnedEtfSymbols.Select(NormalizePinnedEtfSymbol)),
+            _etfIsDragging,
+            _etfDragSourceColumn,
+            _etfDragTargetColumn);
+        int expectedCellCount = displayRows.Length * orderedColumns.Length;
+        if (string.Equals(_etfStructureSignature, structureSignature, StringComparison.Ordinal)
+            && _etfCellIndex.Count == expectedCellCount)
+        {
+            UpdateEtfTableCells(displayRows, orderedColumns, allColumns);
+            return;
+        }
+
+        _etfStructureSignature = structureSignature;
+        _etfCellIndex.Clear();
+        EtfTableGrid.Children.Clear();
+        EtfTableGrid.RowDefinitions.Clear();
+        EtfTableGrid.ColumnDefinitions.Clear();
+        EtfTableGrid.ClipToBounds = true;
+        EtfTableGrid.MouseMove -= EtfTableGrid_MouseMove;
+        EtfTableGrid.MouseLeftButtonUp -= EtfTableGrid_MouseLeftButtonUp;
+        EtfTableGrid.LostMouseCapture -= EtfTableGrid_LostMouseCapture;
+        EtfTableGrid.MouseMove += EtfTableGrid_MouseMove;
+        EtfTableGrid.MouseLeftButtonUp += EtfTableGrid_MouseLeftButtonUp;
+        EtfTableGrid.LostMouseCapture += EtfTableGrid_LostMouseCapture;
 
         double etfScale = GetColumnScale(EtfTableGrid, orderedWidths);
         foreach (double width in orderedWidths)
@@ -2357,11 +2449,150 @@ public partial class MainWindow : Window
                     strategyCode,
                     hasPinnedFeedback,
                     isWarningInstructionCell);
+                if (cell.Child is TextBlock textBlock)
+                {
+                    _etfCellIndex[BuildEtfCellKey(strategyCode, orderedColumns[c].Key)] = new EtfCellReference(cell, textBlock);
+                }
                 rowCells.Add(cell);
             }
-            WireEtfRowInteraction(rowCells, strategyCode, isSelected);
+            WireEtfRowInteraction(rowCells, strategyCode);
         }
         AddEtfDropIndicator();
+    }
+
+    internal static string BuildEtfCellKey(string strategyCode, string columnKey)
+        => $"{MarketSymbolNormalizer.DigitsOnly(strategyCode)}|{columnKey.Trim()}";
+
+    private void UpdateEtfTableCells(
+        IReadOnlyList<string[]> displayRows,
+        IReadOnlyList<EtfDecisionColumnDefinition> orderedColumns,
+        IReadOnlyList<EtfDecisionColumnDefinition> allColumns)
+    {
+        double scale = GetColumnScale(EtfTableGrid, orderedColumns.Select(column => column.PreferredWidth).ToArray());
+        for (int columnIndex = 0; columnIndex < orderedColumns.Count && columnIndex < EtfTableGrid.ColumnDefinitions.Count; columnIndex++)
+        {
+            EtfTableGrid.ColumnDefinitions[columnIndex].Width = new GridLength(orderedColumns[columnIndex].PreferredWidth * scale);
+        }
+
+        for (int rowIndex = 0; rowIndex < displayRows.Count; rowIndex++)
+        {
+            string[] row = displayRows[rowIndex];
+            string strategyCode = row[0];
+            bool isPinned = IsEtfPinned(strategyCode);
+            bool isSelected = string.Equals(
+                NormalizePinnedEtfSymbol(strategyCode),
+                NormalizePinnedEtfSymbol(_selectedEtfStrategyCode),
+                StringComparison.OrdinalIgnoreCase);
+            bool hasPinnedFeedback = IsRecentPinnedFeedback(strategyCode);
+            string rowFill = isSelected
+                ? "#123A55"
+                : isPinned ? "#102D3A" : rowIndex % 2 == 0 ? "#061622" : "#071927";
+            string rowToolTip = BuildEtfRowToolTip(row, allColumns);
+
+            foreach (EtfDecisionColumnDefinition column in orderedColumns)
+            {
+                int sourceColumn = column.SourceIndex;
+                if (!_etfCellIndex.TryGetValue(BuildEtfCellKey(strategyCode, column.Key), out EtfCellReference? cell))
+                {
+                    _etfStructureSignature = null;
+                    BuildEtfTable();
+                    return;
+                }
+
+                string value = row[sourceColumn];
+                if (sourceColumn == 0 && isPinned)
+                {
+                    value = "★" + value;
+                }
+
+                string? toolTip = null;
+                if (sourceColumn == 4 && _etfOrderDraftTooltips.TryGetValue(strategyCode, out string? draftToolTip))
+                {
+                    toolTip = draftToolTip;
+                }
+                else if (sourceColumn == 0)
+                {
+                    toolTip = isPinned ? "已置顶" + Environment.NewLine + rowToolTip : rowToolTip;
+                }
+
+                bool preserveFillOnRowHover = sourceColumn == 2
+                                              && EtfDecisionDisplayAnimationHelper.IsWarningInstruction(value);
+                string cellFill = GetEtfCellFill(sourceColumn, value, rowFill);
+                bool textChanged = !string.Equals(cell.TextBlock.Text, value, StringComparison.Ordinal);
+                Color desiredColor = CellColor(sourceColumn, value, strategyCode);
+                FontWeight desiredWeight = sourceColumn is 2 or 3 ? FontWeights.SemiBold : FontWeights.Normal;
+                bool fillChanged = cell.Border.Tag is not EtfCellVisualState previousState
+                                   || !string.Equals(previousState.NormalFill, cellFill, StringComparison.OrdinalIgnoreCase)
+                                   || previousState.PreserveFillOnRowHover != preserveFillOnRowHover;
+                if (textChanged)
+                {
+                    cell.TextBlock.Text = value;
+                }
+                if (cell.TextBlock.Foreground is not SolidColorBrush foreground || foreground.Color != desiredColor)
+                {
+                    cell.TextBlock.Foreground = BrushFrom(desiredColor);
+                }
+                if (cell.TextBlock.FontWeight != desiredWeight)
+                {
+                    cell.TextBlock.FontWeight = desiredWeight;
+                }
+                cell.Border.Tag = new EtfCellVisualState(cellFill, preserveFillOnRowHover);
+                UpdateEtfCellToolTip(cell.Border, cell.TextBlock, toolTip, value, sourceColumn);
+
+                if (fillChanged)
+                {
+                    cell.Border.Background = BrushFrom(cellFill);
+                }
+
+                if (hasPinnedFeedback)
+                {
+                    AnimateTemporaryBackground(cell.Border, "#18445C", cellFill, 650);
+                }
+                else if (textChanged)
+                {
+                    ApplyEtfValueChangeHighlight(cell.Border, strategyCode, sourceColumn, value, cellFill);
+                }
+            }
+        }
+    }
+
+    private static void UpdateEtfCellToolTip(
+        Border border,
+        TextBlock textBlock,
+        string? explicitToolTip,
+        string value,
+        int sourceColumn)
+    {
+        string? resolvedToolTip = ResolveEtfCellToolTip(explicitToolTip, value, sourceColumn);
+        if (string.IsNullOrWhiteSpace(resolvedToolTip))
+        {
+            textBlock.ToolTip = null;
+            border.ToolTip = null;
+            return;
+        }
+
+        if (textBlock.ToolTip is ToolTip { Content: TextBlock current }
+            && string.Equals(current.Text, resolvedToolTip, StringComparison.Ordinal))
+        {
+            border.ToolTip = textBlock.ToolTip;
+            return;
+        }
+
+        var toolTip = new ToolTip
+        {
+            Background = BrushFrom("#071B2A"),
+            BorderBrush = BrushFrom("#1F4E68"),
+            BorderThickness = new Thickness(1),
+            Content = new TextBlock
+            {
+                Text = resolvedToolTip,
+                Foreground = BrushFrom(Text),
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 360
+            }
+        };
+        textBlock.ToolTip = toolTip;
+        border.ToolTip = toolTip;
     }
 
     private string[][] BuildEtfRows(int columnCount)
@@ -2941,7 +3172,7 @@ public partial class MainWindow : Window
         return EtfDecisionDisplayAnimationHelper.BuildLongTextToolTip(value, minLength);
     }
 
-    private void WireEtfRowInteraction(IReadOnlyList<Border> rowCells, string strategyCode, bool isSelected)
+    private void WireEtfRowInteraction(IReadOnlyList<Border> rowCells, string strategyCode)
     {
         if (rowCells.Count == 0 || !CanPinEtfSymbol(strategyCode))
         {
@@ -2949,11 +3180,17 @@ public partial class MainWindow : Window
         }
 
         string normalizedCode = NormalizePinnedEtfSymbol(strategyCode);
-        string hoverFill = isSelected ? "#123A55" : "#0E2A3D";
         foreach (Border cell in rowCells)
         {
             cell.Cursor = Cursors.Hand;
-            cell.MouseEnter += (_, _) => AnimateEtfRow(rowCells, hoverFill, 120);
+            cell.MouseEnter += (_, _) =>
+            {
+                bool currentlySelected = string.Equals(
+                    NormalizePinnedEtfSymbol(strategyCode),
+                    NormalizePinnedEtfSymbol(_selectedEtfStrategyCode),
+                    StringComparison.OrdinalIgnoreCase);
+                AnimateEtfRow(rowCells, currentlySelected ? "#123A55" : "#0E2A3D", 120);
+            };
             cell.MouseLeave += (_, _) =>
             {
                 Dispatcher.BeginInvoke(() =>
@@ -3564,6 +3801,35 @@ public partial class MainWindow : Window
 
     private void BuildOrderDraftPanel()
     {
+        string signature = string.Join('|',
+            Math.Round(OrderDraftGrid.ActualWidth, 1),
+            string.Join(';', _orderDrafts.Select(item => string.Join(',',
+                item.Id,
+                item.DraftKey,
+                item.StrategyCode,
+                item.Side,
+                item.Source,
+                item.Amount.ToString("R", CultureInfo.InvariantCulture),
+                item.Quantity.ToString("R", CultureInfo.InvariantCulture),
+                item.DraftStatus,
+                item.IsExecutable,
+                item.Reason))),
+            string.Join(';', _orderDraftLegs.Select(item => string.Join(',',
+                item.Id,
+                item.DraftKey,
+                item.ActualCode,
+                item.Amount.ToString("R", CultureInfo.InvariantCulture),
+                item.Quantity.ToString("R", CultureInfo.InvariantCulture),
+                item.Reason))),
+            string.Join(';', _orderFinalizations.Select(item => string.Join(',',
+                item.Id,
+                item.SnapshotKey,
+                item.FinalizedAt))));
+        if (!_uiRefreshCoordinator.ShouldRender("order-draft", signature))
+        {
+            return;
+        }
+
         OrderDraftGrid.Children.Clear();
         OrderDraftGrid.RowDefinitions.Clear();
         OrderDraftGrid.ColumnDefinitions.Clear();
@@ -3818,6 +4084,22 @@ public partial class MainWindow : Window
 
     private void BuildTradeLog()
     {
+        string signature = string.Join('|',
+            Math.Round(TradeGrid.ActualWidth, 1),
+            string.Join(';', _tradeLogs.Take(7).Select(log => string.Join(',',
+                log.Id,
+                log.Time,
+                log.StrategyCode,
+                log.ActualCode,
+                log.Action,
+                log.Quantity.ToString("R", CultureInfo.InvariantCulture),
+                log.Amount.ToString("R", CultureInfo.InvariantCulture),
+                log.Price.ToString("R", CultureInfo.InvariantCulture)))));
+        if (!_uiRefreshCoordinator.ShouldRender("trade-log", signature))
+        {
+            return;
+        }
+
         TradeGrid.Children.Clear();
         TradeGrid.RowDefinitions.Clear();
         TradeGrid.ColumnDefinitions.Clear();

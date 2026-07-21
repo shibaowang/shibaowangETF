@@ -12,7 +12,7 @@ public sealed class MainWindowIndexDrawdownRefreshTests
     }
 
     [Fact]
-    public void RefreshIndexQuoteDependentUi_ReadsQuoteCacheAndRedrawsDrawdownChartsOnly()
+    public void RefreshIndexQuoteDependentUi_ReadsQuoteCacheAndQueuesAffectedSurfacesOnly()
     {
         string source = File.ReadAllText(FindWorkspaceFile("MainWindow.xaml.cs"));
         int methodStart = source.IndexOf("private void RefreshIndexQuoteDependentUiIfChanged()", StringComparison.Ordinal);
@@ -23,8 +23,9 @@ public sealed class MainWindowIndexDrawdownRefreshTests
 
         Assert.Contains("ReadMarketQuoteCache()", method, StringComparison.Ordinal);
         Assert.Contains("IndexDrawdownQuoteRefreshHelper.HasQuoteChanged", method, StringComparison.Ordinal);
-        Assert.Contains("UpdateTopMarketQuotes()", method, StringComparison.Ordinal);
-        Assert.Contains("DrawDrawdownCharts()", method, StringComparison.Ordinal);
+        Assert.Contains("QueueUiRefresh(MainWindowDirtyFlags.TopQuotes | MainWindowDirtyFlags.Drawdown | MainWindowDirtyFlags.EtfTable)", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("UpdateTopMarketQuotes()", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("DrawDrawdownCharts()", method, StringComparison.Ordinal);
         Assert.DoesNotContain("RefreshAsync", method, StringComparison.Ordinal);
         Assert.DoesNotContain("QueueMarketRefresh", method, StringComparison.Ordinal);
         Assert.DoesNotContain("QueueStrategyDecisionIfNeeded", method, StringComparison.Ordinal);

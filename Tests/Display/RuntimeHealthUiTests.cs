@@ -136,7 +136,7 @@ public sealed class RuntimeHealthUiTests
     public void MainRefresh_IsObservedWithFinallyWithoutChangingSchedule()
     {
         string code = ReadRepositoryFile("MainWindow.xaml.cs");
-        string refresh = Slice(code, "private void RefreshLocalDataAndUi()", "private void UpdateClock()");
+        string refresh = Slice(code, "private void RefreshLocalDataAndUi(MainWindowDirtyFlags dirtyFlags = MainWindowDirtyFlags.All)", "private void UpdateClock()");
 
         Assert.Contains("NotifyUiRefreshStarted", refresh, StringComparison.Ordinal);
         Assert.Contains("finally", refresh, StringComparison.Ordinal);
