@@ -128,12 +128,12 @@ public sealed class T1T6ChartEntryTests
     {
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
-        Assert.Contains("<Version>8.10.6</Version>", project, StringComparison.Ordinal);
-        Assert.Contains("<AssemblyVersion>8.10.6.0</AssemblyVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<FileVersion>8.10.6.0</FileVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<InformationalVersion>8.10.6</InformationalVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.7</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyVersion>8.10.7.0</AssemblyVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<FileVersion>8.10.7.0</FileVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<InformationalVersion>8.10.7</InformationalVersion>", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
-        Assert.Equal("V8.10.6", MainWindow.ResolveDisplayVersion());
+        Assert.Equal("V8.10.7", MainWindow.ResolveDisplayVersion());
     }
 
     private static int Count(string text, string value)

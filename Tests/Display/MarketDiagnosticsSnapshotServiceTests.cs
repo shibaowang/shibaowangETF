@@ -47,8 +47,8 @@ public sealed class MarketDiagnosticsSnapshotServiceTests
             Assert.Equal("OK", marketRow.SourceStatus);
             Assert.Single(snapshot.RuntimeLogs);
             Assert.Equal(databasePath, snapshot.Environment.DatabasePath);
-            Assert.Equal("V8.10.6", snapshot.Environment.AppVersion);
-            Assert.Contains("8.10.6", snapshot.Environment.AssemblyInformationalVersion);
+            Assert.Equal("V8.10.7", snapshot.Environment.AppVersion);
+            Assert.Contains("8.10.7", snapshot.Environment.AssemblyInformationalVersion);
             Assert.Equal(1, snapshot.Overview.HistoricalRuntimeLogCount);
             Assert.Equal(0, snapshot.Overview.RecentErrorCount);
             Assert.Equal("正常", snapshot.Overview.OverallStatus);
@@ -341,7 +341,7 @@ public sealed class MarketDiagnosticsSnapshotServiceTests
                 CostAmount = 5800,
                 AverageCost = 1.48,
                 AdjFactor = 1,
-                DailyPnl = null,
+                DailyPnl = 31.20,
                 RealizedPnl = 0,
                 QuoteStatus = "正常"
             });

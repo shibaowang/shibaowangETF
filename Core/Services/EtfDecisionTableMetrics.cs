@@ -97,7 +97,7 @@ public static class EtfDecisionTableMetrics
                 continue;
             }
 
-            double? dailyPnl = ResolveDailyPnl(position.DailyPnl, position.Quantity, quote);
+            double? dailyPnl = ResolveReplayDailyPnl(position, quote);
             if (!HasFiniteValue(dailyPnl))
             {
                 continue;
@@ -179,7 +179,7 @@ public static class EtfDecisionTableMetrics
                     hasEtfQuotes,
                     hasCurrentDayEtfQuote);
             double? dailyPnl = decision.Included
-                ? ResolveDailyPnl(position.DailyPnl, position.Quantity, quote)
+                ? ResolveReplayDailyPnl(position, quote)
                 : null;
             if (decision.Included && !HasFiniteValue(dailyPnl))
             {
@@ -568,6 +568,15 @@ public static class EtfDecisionTableMetrics
 
     private static bool IsOtcReplacementPosition(PositionReplayStateRecord position)
         => string.Equals(position.Source?.Trim(), OtcReplacementSource, StringComparison.Ordinal);
+
+    private static double? ResolveReplayDailyPnl(
+        PositionReplayStateRecord position,
+        MarketQuoteRecord? quote)
+        => IsOtcReplacementPosition(position)
+            ? ResolveDailyPnl(position.DailyPnl, position.Quantity, quote)
+            : HasFiniteValue(position.DailyPnl)
+                ? position.DailyPnl
+                : null;
 
     private static double? ResolveDailyPnl(double? storedDailyPnl, double quantity, MarketQuoteRecord? quote)
     {

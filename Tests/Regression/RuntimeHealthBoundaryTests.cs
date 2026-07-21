@@ -87,7 +87,7 @@ public sealed class RuntimeHealthBoundaryTests
         string project = ReadRepositoryFile("CrossETF.Terminal.UiShell.Reference.csproj");
 
         Assert.DoesNotContain("<AssemblyName>", project, StringComparison.Ordinal);
-        Assert.Contains("<Version>8.10.6</Version>", project, StringComparison.Ordinal);
+        Assert.Contains("<Version>8.10.7</Version>", project, StringComparison.Ordinal);
     }
 
     [Fact]

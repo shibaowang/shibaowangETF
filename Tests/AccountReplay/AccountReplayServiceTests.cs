@@ -407,12 +407,12 @@ public class AccountReplayServiceTests
     }
 
     [Fact]
-    public void Replay_DailyPnlDoesNotUseQuoteLastCloseAsNaturalDayPnl()
+    public void Replay_DailyPnlUsesTradeCashFlowForTodayBuy()
     {
         var service = new AccountReplayService();
         TradeLogRecord[] records =
         {
-            Log("2026-06-14 09:30:00", "159941", "买入", actualCode: "159941", quantity: 1000, amount: 1000, source: "场内ETF")
+            Log("2026-06-14 09:30:00", "159941", "买入", actualCode: "159941", quantity: 1000, amount: 1200, source: "场内ETF")
         };
         MarketQuoteRecord[] quotes =
         {
@@ -431,9 +431,9 @@ public class AccountReplayServiceTests
         AccountReplayResult result = service.Replay(records, quotes, new DateTime(2026, 6, 14, 15, 1, 0));
 
         PositionReplayStateRecord position = Assert.Single(result.Positions);
-        Assert.Null(position.DailyPnl);
+        Assert.Equal(0, position.DailyPnl!.Value, 2);
         Assert.Equal(1200, position.MarketValue!.Value, 2);
-        Assert.Equal(200, position.UnrealizedPnl!.Value, 2);
+        Assert.Equal(0, position.UnrealizedPnl!.Value, 2);
     }
 
     private static ReplaySnapshot ReplayThroughTempDb(params TradeLogRecord[] records)

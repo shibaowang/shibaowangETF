@@ -169,7 +169,7 @@ public class EtfDecisionTableMetricsTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900)
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900)
         };
         var quotes = new[]
         {
@@ -311,13 +311,12 @@ public class EtfDecisionTableMetricsTests
     }
 
     [Theory]
-    [InlineData("2026-07-08 10:30:00", "2026-07-08 10:30:00", "2026-07-08 10:30:00", true)]
-    [InlineData("2026-07-08 09:30:00", "2026-07-07 15:00:00", "2026-07-08 09:30:00", false)]
-    public void CalculateNaturalDayValuationDailyPnl_FallbackEtfDailyPnlStillRequiresQuoteTimeInNaturalDay(
+    [InlineData("2026-07-08 10:30:00", "2026-07-08 10:30:00", "2026-07-08 10:30:00")]
+    [InlineData("2026-07-08 09:30:00", "2026-07-07 15:00:00", "2026-07-08 09:30:00")]
+    public void CalculateNaturalDayValuationDailyPnl_DoesNotFallbackMissingReplayDailyPnl(
         string now,
         string quoteTime,
-        string receivedAt,
-        bool expectedIncluded)
+        string receivedAt)
     {
         var positions = new[]
         {
@@ -333,14 +332,7 @@ public class EtfDecisionTableMetricsTests
             quotes,
             DateTime.Parse(now));
 
-        if (expectedIncluded)
-        {
-            Assert.Equal(31.20, dailyPnl!.Value, 2);
-        }
-        else
-        {
-            Assert.Null(dailyPnl);
-        }
+        Assert.Null(dailyPnl);
     }
 
     [Fact]
@@ -429,8 +421,8 @@ public class EtfDecisionTableMetricsTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
-            ReplayPosition("159513", "159513", "\u573a\u5185ETF", null, quantity: 3100)
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900),
+            ReplayPosition("159513", "159513", "\u573a\u5185ETF", 18.60, quantity: 3100)
         };
         var quotes = new[]
         {
@@ -477,7 +469,7 @@ public class EtfDecisionTableMetricsTests
     }
 
     [Fact]
-    public void CalculateNaturalDayValuationDailyPnl_ComputesEtfDailyPnlWhenStoredValueMissing()
+    public void CalculateNaturalDayValuationDailyPnl_DoesNotUseUnsafeEtfFallbackWhenStoredValueMissing()
     {
         var positions = new[]
         {
@@ -502,7 +494,7 @@ public class EtfDecisionTableMetricsTests
             quotes,
             new DateTime(2026, 7, 3, 10, 36, 0));
 
-        Assert.Equal(15.60, dailyPnl!.Value, 2);
+        Assert.Null(dailyPnl);
     }
 
     [Fact]
@@ -510,7 +502,7 @@ public class EtfDecisionTableMetricsTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", -39.00, quantity: 3900),
             ReplayPosition("159941", "017091", "\u573a\u5916\u66ff\u4ee3", -278.30)
         };
         var quotes = new[]
@@ -550,8 +542,8 @@ public class EtfDecisionTableMetricsTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
-            ReplayPosition("159513", "159513", "\u573a\u5185ETF", null, quantity: 3100),
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 35.10, quantity: 3900),
+            ReplayPosition("159513", "159513", "\u573a\u5185ETF", 31.00, quantity: 3100),
             ReplayPosition("159660", "018966", "\u573a\u5916\u66ff\u4ee3", -121.08, quantity: 4711.38)
         };
         var otcPositions = new[]
@@ -972,7 +964,7 @@ public class EtfDecisionTableMetricsTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900),
             ReplayPosition("159509", "017091", "\u573a\u5916\u66ff\u4ee3", null, quantity: 43.50),
             ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31)
         };

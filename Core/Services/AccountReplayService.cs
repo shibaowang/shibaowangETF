@@ -107,44 +107,64 @@ public sealed class AccountReplayService
             }
 
             PositionAccumulator position = GetPosition(positions, row);
+            CaptureNaturalDayOpeningQuantity(position, row.Time, todayRange);
+            bool isToday = todayRange.Contains(row.Time);
             switch (action)
             {
                 case "买入":
-                    cash += Math.Abs(record.NetCashImpact) > CashEpsilon
+                    double buyCashImpact = Math.Abs(record.NetCashImpact) > CashEpsilon
                         ? record.NetCashImpact
                         : -(record.Amount + record.Fee);
+                    cash += buyCashImpact;
                     position.Quantity += record.Quantity;
                     position.CostAmount += record.Amount;
-                    if (todayRange.Contains(row.Time))
+                    if (isToday)
                     {
                         position.TodayBuyQuantity += record.Quantity;
                         position.TodayBuyAmount += record.Amount;
+                        position.TodayPositionNetCashImpact += buyCashImpact;
+                        position.HasTodayPositionActivity = true;
                     }
                     break;
 
                 case "卖出":
-                    cash += Math.Abs(record.NetCashImpact) > CashEpsilon
+                    double sellCashImpact = Math.Abs(record.NetCashImpact) > CashEpsilon
                         ? record.NetCashImpact
                         : record.Amount - record.Fee;
+                    cash += sellCashImpact;
+                    if (isToday)
+                    {
+                        position.TodayPositionNetCashImpact += sellCashImpact;
+                        position.HasTodayPositionActivity = true;
+                    }
                     ApplySell(result, row, position);
                     break;
 
                 case "分红":
-                    cash += Math.Abs(record.NetCashImpact) > CashEpsilon
+                    double dividendCashImpact = Math.Abs(record.NetCashImpact) > CashEpsilon
                         ? record.NetCashImpact
                         : record.Amount;
+                    cash += dividendCashImpact;
+                    if (isToday)
+                    {
+                        position.TodayPositionNetCashImpact += dividendCashImpact;
+                        position.HasTodayPositionActivity = true;
+                    }
                     break;
 
                 case "送股":
                 case "拆分":
+                    MarkTodayCorporateAction(position, isToday);
                     position.Quantity += record.Quantity;
                     break;
 
                 case "合并":
+                    MarkTodayCorporateAction(position, isToday);
                     ApplyMerge(result, row, position);
                     break;
 
                 case "除权校准":
+                    MarkTodayCorporateAction(position, isToday);
                     position.AdjFactor = Math.Abs(record.Quantity) > QuantityEpsilon ? record.Quantity : 1;
                     break;
             }
@@ -168,7 +188,13 @@ public sealed class AccountReplayService
                 .LastOrDefault();
         }
 
-        BuildValuation(result, positions.Values, marketQuotes.ToList(), calculatedAt);
+        foreach (PositionAccumulator position in positions.Values.Where(position => !position.OpeningQuantityCaptured))
+        {
+            position.OpeningQuantity = position.Quantity;
+            position.OpeningQuantityCaptured = true;
+        }
+
+        BuildValuation(result, positions.Values, marketQuotes.ToList(), todayRange, calculatedAt);
 
         double totalPositionCost = result.Positions.Sum(position => position.CostAmount);
         double knownMarketValue = result.Positions.Sum(position => position.MarketValue ?? 0);
@@ -404,12 +430,16 @@ public sealed class AccountReplayService
         AccountReplayResult result,
         IEnumerable<PositionAccumulator> positions,
         IReadOnlyList<MarketQuoteRecord> quotes,
+        BeijingNaturalDayRange todayRange,
         string calculatedAt)
     {
         foreach (PositionAccumulator position in positions
                      .Where(position => position.Quantity > QuantityEpsilon
                                         || position.CostAmount > CostEpsilon
-                                        || Math.Abs(position.RealizedPnl) > CostEpsilon)
+                                        || Math.Abs(position.RealizedPnl) > CostEpsilon
+                                        || (position.HasTodayPositionActivity
+                                            && (position.OpeningQuantity > QuantityEpsilon
+                                                || position.Quantity > QuantityEpsilon)))
                      .OrderBy(position => position.StrategyCode, StringComparer.OrdinalIgnoreCase)
                      .ThenBy(position => position.ActualCode, StringComparer.OrdinalIgnoreCase))
         {
@@ -421,7 +451,7 @@ public sealed class AccountReplayService
             double averageCost = position.Quantity > QuantityEpsilon ? position.CostAmount / position.Quantity : 0;
             double? marketPrice = quote?.Price;
             double? marketValue = marketPrice.HasValue ? position.Quantity * marketPrice.Value : null;
-            double? dailyPnl = null;
+            double? dailyPnl = CalculateNaturalDayPositionPnl(position, quote, todayRange);
             double? unrealized = marketValue.HasValue ? marketValue.Value - position.CostAmount : null;
             double? totalPnl = unrealized.HasValue ? unrealized.Value + position.RealizedPnl : null;
             double? returnRate = unrealized.HasValue && position.CostAmount > CostEpsilon
@@ -489,6 +519,77 @@ public sealed class AccountReplayService
             .OrderByDescending(quote => quote.ReceivedAt, StringComparer.Ordinal)
             .FirstOrDefault();
     }
+
+    private static void CaptureNaturalDayOpeningQuantity(
+        PositionAccumulator position,
+        DateTime tradeTime,
+        BeijingNaturalDayRange todayRange)
+    {
+        if (position.OpeningQuantityCaptured)
+        {
+            return;
+        }
+
+        DateTime beijingTradeTime = BeijingNaturalDayRangeProvider.NormalizeToBeijingLocal(tradeTime);
+        if (beijingTradeTime < todayRange.StartInclusive)
+        {
+            return;
+        }
+
+        position.OpeningQuantity = position.Quantity;
+        position.OpeningQuantityCaptured = true;
+    }
+
+    private static void MarkTodayCorporateAction(PositionAccumulator position, bool isToday)
+    {
+        if (!isToday)
+        {
+            return;
+        }
+
+        position.HasTodayCorporateAction = true;
+        position.HasTodayPositionActivity = true;
+    }
+
+    private static double? CalculateNaturalDayPositionPnl(
+        PositionAccumulator position,
+        MarketQuoteRecord? quote,
+        BeijingNaturalDayRange todayRange)
+    {
+        if (position.Source == "场外替代"
+            || position.HasTodayCorporateAction
+            || quote?.Price is not double price
+            || quote.LastClose is not double lastClose
+            || !IsFinitePositive(price)
+            || !IsFinitePositive(lastClose)
+            || !TryParseQuoteTime(quote.QuoteTime, out DateTime quoteTime)
+            || !todayRange.Contains(quoteTime))
+        {
+            return null;
+        }
+
+        double endingMarketValue = position.Quantity * price;
+        double openingPositionValue = position.OpeningQuantity * lastClose;
+        double dailyPnl = endingMarketValue
+                          + position.TodayPositionNetCashImpact
+                          - openingPositionValue;
+        return Math.Abs(dailyPnl) <= QuantityEpsilon ? 0 : dailyPnl;
+    }
+
+    private static bool TryParseQuoteTime(string? value, out DateTime parsed)
+        => DateTime.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.RoundtripKind,
+            out parsed)
+           || DateTime.TryParse(
+               value,
+               CultureInfo.CurrentCulture,
+               DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.RoundtripKind,
+               out parsed);
+
+    private static bool IsFinitePositive(double value)
+        => !double.IsNaN(value) && !double.IsInfinity(value) && value > 0;
 
     private static bool CodeEquals(string? candidate, string code, string digits)
     {
@@ -576,6 +677,11 @@ public sealed class AccountReplayService
         public double AdjFactor { get; set; } = 1;
         public double TodayBuyQuantity { get; set; }
         public double TodayBuyAmount { get; set; }
+        public double OpeningQuantity { get; set; }
+        public bool OpeningQuantityCaptured { get; set; }
+        public double TodayPositionNetCashImpact { get; set; }
+        public bool HasTodayPositionActivity { get; set; }
+        public bool HasTodayCorporateAction { get; set; }
         public double RealizedPnl { get; set; }
     }
 }

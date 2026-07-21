@@ -10,7 +10,7 @@ public sealed class NaturalDayPnlEvaluationTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900),
             ReplayPosition("159513", "000834", "\u573a\u5916\u66ff\u4ee3", null, quantity: 777.31),
             ReplayPosition("159509", "017091", "\u573a\u5916\u66ff\u4ee3", 128.88, quantity: 43.50)
         };
@@ -41,7 +41,7 @@ public sealed class NaturalDayPnlEvaluationTests
     {
         var positions = new[]
         {
-            ReplayPosition("159941", "159941", "\u573a\u5185ETF", null, quantity: 3900),
+            ReplayPosition("159941", "159941", "\u573a\u5185ETF", 31.20, quantity: 3900),
             ReplayPosition("159513", "159513", "\u573a\u5185ETF", 18.60, quantity: 3100)
         };
         var quotes = new[]
