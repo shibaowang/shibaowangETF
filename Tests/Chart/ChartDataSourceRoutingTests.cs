@@ -390,7 +390,7 @@ public sealed class ChartDataSourceRoutingTests
         string[] lines = Enumerable.Range(0, count)
             .Select(index =>
             {
-                DateTime date = new DateTime(2025, 1, 1).AddDays(index);
+                DateTime date = new DateTime(2026, 6, 23).AddDays(index - count + 1);
                 double close = 100 + index * 0.01;
                 return $"\"{date:yyyy-MM-dd},{close:F2},{close:F2},{close + 1:F2},{close - 1:F2},1000,2000\"";
             })

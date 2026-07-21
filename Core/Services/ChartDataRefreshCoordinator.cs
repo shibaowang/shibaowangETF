@@ -13,6 +13,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
     private static readonly TimeSpan KLineRequestInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StandardIntradayCloseCompleteThreshold = new(14, 57, 0);
     private const int BackgroundIntradayMaxRequestsPerTick = 1;
+    private const int BackgroundDailyHistoryMaxRequestsPerTick = 1;
     private const int DeepHistoryTargetPointCount = 3000;
     private const string HistoryDepthCheckpointPrefix = "chart_history_depth:";
 
@@ -28,6 +29,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
     private readonly Dictionary<string, DateTimeOffset> _lastIntradayRequestAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _lastKLineRequestAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _indexIntradayCatchUpAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _completedDailyTailTargets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DeepHistoryAttemptState> _deepHistoryAttempts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, MarketCircuitBreaker> _breakers = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -124,8 +126,6 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
                 {
                     await RefreshSubscriptionAsync(
                         subscription,
-                        quotes,
-                        history,
                         activeIntradaySymbols,
                         subscriptionToken).ConfigureAwait(false);
                 }
@@ -138,6 +138,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             }
 
             await RefreshBackgroundIntradayCacheAsync(backgroundSecurities, activeIntradaySymbols, cancellationToken).ConfigureAwait(false);
+            await RefreshBackgroundDailyHistoryAsync(backgroundSecurities, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -166,8 +167,6 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
 
     private async Task RefreshSubscriptionAsync(
         ChartSubscription subscription,
-        IReadOnlyList<MarketQuoteRecord> quotes,
-        IReadOnlyList<MarketQuoteRecord> history,
         ISet<string> activeIntradaySymbols,
         CancellationToken cancellationToken)
     {
@@ -206,13 +205,15 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             MarketDataSourceRoute route = MarketDataSourceRouter.Resolve(
                 subscription.Security.InstrumentType,
                 MarketDataPurpose.DailyHistory);
-            bool deepHistoryHandled = await TryEnsureDeepHistoryAsync(
+            await TryEnsureDeepHistoryAsync(
                 subscription,
                 route,
                 cancellationToken).ConfigureAwait(false);
-            if (!deepHistoryHandled
-                && !HasDailyCache(subscription.Security.StrategyCode)
-                && !HasDailyHistory(subscription.Security, history))
+            bool tailRefreshHandled = await TryRefreshDailyTailIfNeededAsync(
+                subscription.Security,
+                route,
+                cancellationToken).ConfigureAwait(false);
+            if (!tailRefreshHandled && ReadCurrentDailyKLines(subscription.Security).Count == 0)
             {
                 UseRouteCacheOrDailyUnavailable(subscription.Security, route, _nowProvider());
             }
@@ -223,23 +224,11 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             MarketDataSourceRoute route = MarketDataSourceRouter.Resolve(
                 subscription.Security.InstrumentType,
                 MarketDataPurpose.DailyHistory);
-            if (HasDailyCache(subscription.Security.StrategyCode)
-                || HasDailyHistory(subscription.Security, history))
-            {
-                // DailyLike cache is enough for display; do not request the network on every chart open.
-            }
-            else if (route.AllowNetworkRequest
-                && route.Provider == MarketDataProvider.EastMoney)
-            {
-                await TryRefreshDailyKLineAsync(subscription, cancellationToken).ConfigureAwait(false);
-            }
-            else if (route.AllowNetworkRequest
-                     && route.Provider == MarketDataProvider.Tencent)
-            {
-                await TryRefreshTencentDailyKLineAsync(subscription, cancellationToken).ConfigureAwait(false);
-            }
-            else if (!HasDailyCache(subscription.Security.StrategyCode)
-                     && !HasDailyHistory(subscription.Security, history))
+            bool tailRefreshHandled = await TryRefreshDailyTailIfNeededAsync(
+                subscription.Security,
+                route,
+                cancellationToken).ConfigureAwait(false);
+            if (!tailRefreshHandled && ReadCurrentDailyKLines(subscription.Security).Count == 0)
             {
                 UseRouteCacheOrDailyUnavailable(subscription.Security, route, _nowProvider());
             }
@@ -325,6 +314,79 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             }
         }
     }
+
+    private async Task RefreshBackgroundDailyHistoryAsync(
+        IReadOnlyList<ChartSecurityInfo> securities,
+        CancellationToken cancellationToken)
+    {
+        int attempted = 0;
+        foreach (ChartSecurityInfo security in securities)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            MarketDataSourceRoute route = MarketDataSourceRouter.Resolve(
+                security.InstrumentType,
+                MarketDataPurpose.DailyHistory);
+            bool requested = await TryRefreshDailyTailIfNeededAsync(
+                security,
+                route,
+                cancellationToken).ConfigureAwait(false);
+            if (!requested)
+            {
+                continue;
+            }
+
+            attempted++;
+            if (attempted >= BackgroundDailyHistoryMaxRequestsPerTick)
+            {
+                return;
+            }
+        }
+    }
+
+    private async Task<bool> TryRefreshDailyTailIfNeededAsync(
+        ChartSecurityInfo security,
+        MarketDataSourceRoute route,
+        CancellationToken cancellationToken)
+    {
+        DateOnly expectedCompletedTradingDate = DailyKLineFreshnessService.GetExpectedCompletedTradingDate(
+            security.InstrumentType,
+            _nowProvider());
+        IReadOnlyList<KLinePoint> existing = ReadCurrentDailyKLines(security);
+        if (!DailyKLineFreshnessService.NeedsTailCatchUp(existing, expectedCompletedTradingDate)
+            || !route.AllowNetworkRequest
+            || route.Provider is not (MarketDataProvider.Tencent or MarketDataProvider.EastMoney))
+        {
+            return false;
+        }
+
+        string targetKey = BuildDailyTailTargetKey(route, security, expectedCompletedTradingDate);
+        if (_completedDailyTailTargets.Contains(targetKey))
+        {
+            return false;
+        }
+
+        return route.Provider == MarketDataProvider.Tencent
+            ? await TryRefreshTencentDailyKLineAsync(
+                security,
+                expectedCompletedTradingDate,
+                targetKey,
+                cancellationToken).ConfigureAwait(false)
+            : await TryRefreshDailyKLineAsync(
+                security,
+                expectedCompletedTradingDate,
+                targetKey,
+                cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string BuildDailyTailTargetKey(
+        MarketDataSourceRoute route,
+        ChartSecurityInfo security,
+        DateOnly expectedCompletedTradingDate)
+        => route.Source
+           + ":CHART-TAIL:"
+           + NormalizeStrategyCode(security.StrategyCode)
+           + ":"
+           + expectedCompletedTradingDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 
     private async Task<bool> TryRefreshIntradayAsync(
         ChartSecurityInfo security,
@@ -974,7 +1036,13 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             IReadOnlyList<KLinePoint> candidate = KLineAggregator.FromHistoryPoints(
                 EastMoneyHistoryParser.ParsePoints(result.RawPayload));
             cancellationToken.ThrowIfCancellationRequested();
-            ChartHistoryReplacementDecision replacement = ChartHistoryDepthEvaluator.DecideReplacement(existing, candidate);
+            if (!ChartHistoryDepthEvaluator.TryValidateDailySequence(candidate, out string validationReason))
+            {
+                throw new InvalidOperationException("Invalid DailyLike history: " + validationReason);
+            }
+
+            IReadOnlyList<KLinePoint> merged = DailyKLineFreshnessService.MergeRealDaily(existing, candidate);
+            ChartHistoryReplacementDecision replacement = ChartHistoryDepthEvaluator.DecideReplacement(existing, merged);
             if (!replacement.ShouldReplace)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -993,7 +1061,7 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
                 return true;
             }
 
-            ChartHistoryDepthInfo updatedDepth = ChartHistoryDepthEvaluator.Evaluate(candidate);
+            ChartHistoryDepthInfo updatedDepth = ChartHistoryDepthEvaluator.Evaluate(merged);
             string statusMessage = result.IsSourceExhausted
                                    && ChartHistoryDepthEvaluator.NeedsBackfill(subscription.Period, updatedDepth)
                 ? "已显示数据源全部可用历史"
@@ -1001,11 +1069,17 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             _cache.SaveDailyKLines(
                 subscription.Security.StrategyCode,
-                candidate,
+                merged,
                 new ChartDataStatus(true, statusMessage, true),
                 _nowProvider());
             cancellationToken.ThrowIfCancellationRequested();
-            TryPersistDailyHistoryPayload(subscription.Security, result, route.Source);
+            TryPersistMergedDailyHistory(
+                subscription.Security,
+                merged,
+                route.Source,
+                DailyKLineFreshnessService.GetExpectedCompletedTradingDate(
+                    subscription.Security.InstrumentType,
+                    _nowProvider()));
             cancellationToken.ThrowIfCancellationRequested();
             TryWriteHistoryDepthCheckpoint(
                 checkpointKey,
@@ -1106,28 +1180,32 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
            + (security.InstrumentType == ChartInstrumentType.Index ? "INDEX:" : "ETF:")
            + NormalizeStrategyCode(security.StrategyCode);
 
-    private async Task TryRefreshDailyKLineAsync(ChartSubscription subscription, CancellationToken cancellationToken)
+    private async Task<bool> TryRefreshDailyKLineAsync(
+        ChartSecurityInfo security,
+        DateOnly expectedCompletedTradingDate,
+        string key,
+        CancellationToken cancellationToken)
     {
-        string key = MarketSources.EastMoneyHistory + ":CHART:" + subscription.Security.StrategyCode;
         DateTimeOffset now = _nowProvider();
-        if (!CanRequest(key, MarketRequestKind.IndexDailyHistory, subscription.Security.StrategyCode, KLineRequestInterval, now, out ChartDataStatus blockedStatus))
+        IReadOnlyList<KLinePoint> existingRealDaily = ReadCurrentDailyKLines(security);
+        if (!CanRequest(key, MarketRequestKind.IndexDailyHistory, security.StrategyCode, KLineRequestInterval, now, out ChartDataStatus blockedStatus))
         {
-            if (_cache.GetDailyKLines(subscription.Security.StrategyCode) is null)
+            if (_cache.GetDailyKLines(security.StrategyCode) is null)
             {
                 ChartDataStatus status = blockedStatus.IsCircuitOpen
                     ? blockedStatus with { Message = "K线接口熔断中，无可用DailyLike日K缓存" }
                     : blockedStatus with { Message = "K线接口限频中，无可用DailyLike日K缓存" };
-                _cache.SaveDailyKLines(subscription.Security.StrategyCode, Array.Empty<KLinePoint>(), status, now);
+                _cache.SaveDailyKLines(security.StrategyCode, Array.Empty<KLinePoint>(), status, now);
             }
 
-            return;
+            return false;
         }
 
         try
         {
             EastMoneyHistoryFetchResult result = await _client.FetchEastMoneyHistoryAsync(
-                subscription.Security.EastMoneySecId,
-                isEtf: subscription.Security.InstrumentType == ChartInstrumentType.Etf,
+                security.EastMoneySecId,
+                isEtf: security.InstrumentType == ChartInstrumentType.Etf,
                 preferDaily: true,
                 cancellationToken).ConfigureAwait(false);
             MarketHistoryQualityInfo quality = MarketHistoryQuality.Analyze(result.RawPayload);
@@ -1140,62 +1218,84 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
                     _ => "接口返回无效数据，DailyLike日K不可用"
                 };
                 _cache.SaveDailyKLines(
-                    subscription.Security.StrategyCode,
-                    Array.Empty<KLinePoint>(),
-                    new ChartDataStatus(false, statusMessage),
+                    security.StrategyCode,
+                    existingRealDaily,
+                    new ChartDataStatus(existingRealDaily.Count > 0, statusMessage, existingRealDaily.Count > 0),
                     now);
-                _runtimeLog?.Invoke("WARN", "SecurityChart", subscription.Security.StrategyCode + " " + statusMessage);
-                return;
+                _runtimeLog?.Invoke("WARN", "SecurityChart", security.StrategyCode + " " + statusMessage);
+                return true;
             }
 
-            IReadOnlyList<KLinePoint> points = KLineAggregator.FromHistoryPoints(EastMoneyHistoryParser.ParsePoints(result.RawPayload));
+            IReadOnlyList<KLinePoint> incoming = KLineAggregator.FromHistoryPoints(EastMoneyHistoryParser.ParsePoints(result.RawPayload));
+            if (!ChartHistoryDepthEvaluator.TryValidateDailySequence(incoming, out string validationReason))
+            {
+                throw new InvalidOperationException("Invalid DailyLike history: " + validationReason);
+            }
+
+            IReadOnlyList<KLinePoint> points = DailyKLineFreshnessService.MergeRealDaily(existingRealDaily, incoming);
             _cache.SaveDailyKLines(
-                subscription.Security.StrategyCode,
+                security.StrategyCode,
                 points,
                 new ChartDataStatus(points.Count > 0, points.Count > 0 ? "真实日K接口缓存" : "日K数据暂不可用", true),
                 now);
+            TryPersistMergedDailyHistory(security, points, MarketSources.EastMoneyHistory, expectedCompletedTradingDate);
+            if (!DailyKLineFreshnessService.NeedsTailCatchUp(points, expectedCompletedTradingDate))
+            {
+                _completedDailyTailTargets.Add(key);
+            }
             GetBreaker(key).RecordSuccess();
-            _scheduler?.RecordSuccess(MarketRequestKind.IndexDailyHistory, subscription.Security.StrategyCode, _nowProvider());
+            _scheduler?.RecordSuccess(MarketRequestKind.IndexDailyHistory, security.StrategyCode, _nowProvider());
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _lastKLineRequestAt.Remove(key);
+            _scheduler?.ReleaseCancelledRequest(MarketRequestKind.IndexDailyHistory, security.StrategyCode, _nowProvider());
+            throw;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             string message = FormatException(ex);
             now = _nowProvider();
             DateTimeOffset? cooldown = GetBreaker(key).RecordFailure(message, now);
-            cooldown = Max(cooldown, _scheduler?.RecordFailure(MarketRequestKind.IndexDailyHistory, subscription.Security.StrategyCode, message, now));
-            ChartKLineCacheEntry? existing = _cache.GetDailyKLines(subscription.Security.StrategyCode);
-            ChartDataStatus status = existing?.Points.Count > 0
+            cooldown = Max(cooldown, _scheduler?.RecordFailure(MarketRequestKind.IndexDailyHistory, security.StrategyCode, message, now));
+            ChartDataStatus status = existingRealDaily.Count > 0
                 ? new ChartDataStatus(true, "使用最近真实日K缓存", true, IsCircuitOpen: cooldown.HasValue)
                 : new ChartDataStatus(false, cooldown.HasValue ? "K线接口熔断中，无可用DailyLike日K缓存" : "接口失败，无可用DailyLike日K缓存", IsCircuitOpen: cooldown.HasValue);
             _cache.SaveDailyKLines(
-                subscription.Security.StrategyCode,
-                existing?.Points ?? Array.Empty<KLinePoint>(),
+                security.StrategyCode,
+                existingRealDaily,
                 status,
                 now);
-            _runtimeLog?.Invoke("WARN", "SecurityChart", subscription.Security.StrategyCode + " 日K数据刷新失败：" + message);
+            _runtimeLog?.Invoke("WARN", "SecurityChart", security.StrategyCode + " 日K数据刷新失败：" + message);
         }
+
+        return true;
     }
 
-    private async Task TryRefreshTencentDailyKLineAsync(ChartSubscription subscription, CancellationToken cancellationToken)
+    private async Task<bool> TryRefreshTencentDailyKLineAsync(
+        ChartSecurityInfo security,
+        DateOnly expectedCompletedTradingDate,
+        string key,
+        CancellationToken cancellationToken)
     {
-        string key = MarketSources.TencentHistory + ":CHART:" + subscription.Security.StrategyCode;
         DateTimeOffset now = _nowProvider();
-        if (!CanRequest(key, MarketRequestKind.EtfDailyKLine, subscription.Security.StrategyCode, KLineRequestInterval, now, out ChartDataStatus blockedStatus))
+        IReadOnlyList<KLinePoint> existingRealDaily = ReadCurrentDailyKLines(security);
+        if (!CanRequest(key, MarketRequestKind.EtfDailyKLine, security.StrategyCode, KLineRequestInterval, now, out ChartDataStatus blockedStatus))
         {
-            if (_cache.GetDailyKLines(subscription.Security.StrategyCode) is null)
+            if (_cache.GetDailyKLines(security.StrategyCode) is null)
             {
                 ChartDataStatus status = blockedStatus.IsCircuitOpen
                     ? blockedStatus with { Message = "腾讯日K接口熔断中，无可用DailyLike日K缓存" }
                     : blockedStatus with { Message = "腾讯日K接口限频中，无可用DailyLike日K缓存" };
-                _cache.SaveDailyKLines(subscription.Security.StrategyCode, Array.Empty<KLinePoint>(), status, now);
+                _cache.SaveDailyKLines(security.StrategyCode, Array.Empty<KLinePoint>(), status, now);
             }
 
-            return;
+            return false;
         }
 
         try
         {
-            string tencentCode = ResolveTencentCode(subscription.Security);
+            string tencentCode = ResolveTencentCode(security);
             EastMoneyHistoryFetchResult result = await _client.FetchTencentDailyHistoryAsync(
                 tencentCode,
                 cancellationToken).ConfigureAwait(false);
@@ -1209,62 +1309,83 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
                     _ => "腾讯接口返回无效数据，DailyLike日K不可用"
                 };
                 _cache.SaveDailyKLines(
-                    subscription.Security.StrategyCode,
-                    Array.Empty<KLinePoint>(),
-                    new ChartDataStatus(false, statusMessage),
+                    security.StrategyCode,
+                    existingRealDaily,
+                    new ChartDataStatus(existingRealDaily.Count > 0, statusMessage, existingRealDaily.Count > 0),
                     now);
-                _runtimeLog?.Invoke("WARN", "SecurityChart", subscription.Security.StrategyCode + " " + statusMessage);
-                return;
+                _runtimeLog?.Invoke("WARN", "SecurityChart", security.StrategyCode + " " + statusMessage);
+                return true;
             }
 
-            IReadOnlyList<KLinePoint> points = KLineAggregator.FromHistoryPoints(EastMoneyHistoryParser.ParsePoints(result.RawPayload));
+            IReadOnlyList<KLinePoint> incoming = KLineAggregator.FromHistoryPoints(EastMoneyHistoryParser.ParsePoints(result.RawPayload));
+            if (!ChartHistoryDepthEvaluator.TryValidateDailySequence(incoming, out string validationReason))
+            {
+                throw new InvalidOperationException("Invalid DailyLike history: " + validationReason);
+            }
+
+            IReadOnlyList<KLinePoint> points = DailyKLineFreshnessService.MergeRealDaily(existingRealDaily, incoming);
             _cache.SaveDailyKLines(
-                subscription.Security.StrategyCode,
+                security.StrategyCode,
                 points,
                 new ChartDataStatus(points.Count > 0, points.Count > 0 ? "腾讯真实DailyLike日K缓存" : "日K数据暂不可用", true),
                 now);
-            TryPersistDailyHistoryPayload(subscription.Security, result, MarketSources.TencentHistory);
+            TryPersistMergedDailyHistory(security, points, MarketSources.TencentHistory, expectedCompletedTradingDate);
+            if (!DailyKLineFreshnessService.NeedsTailCatchUp(points, expectedCompletedTradingDate))
+            {
+                _completedDailyTailTargets.Add(key);
+            }
             GetBreaker(key).RecordSuccess();
-            _scheduler?.RecordSuccess(MarketRequestKind.EtfDailyKLine, subscription.Security.StrategyCode, _nowProvider());
+            _scheduler?.RecordSuccess(MarketRequestKind.EtfDailyKLine, security.StrategyCode, _nowProvider());
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _lastKLineRequestAt.Remove(key);
+            _scheduler?.ReleaseCancelledRequest(MarketRequestKind.EtfDailyKLine, security.StrategyCode, _nowProvider());
+            throw;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             string message = FormatException(ex);
             now = _nowProvider();
             DateTimeOffset? cooldown = GetBreaker(key).RecordFailure(message, now);
-            cooldown = Max(cooldown, _scheduler?.RecordFailure(MarketRequestKind.EtfDailyKLine, subscription.Security.StrategyCode, message, now));
-            ChartKLineCacheEntry? existing = _cache.GetDailyKLines(subscription.Security.StrategyCode);
-            ChartDataStatus status = existing?.Points.Count > 0
+            cooldown = Max(cooldown, _scheduler?.RecordFailure(MarketRequestKind.EtfDailyKLine, security.StrategyCode, message, now));
+            ChartDataStatus status = existingRealDaily.Count > 0
                 ? new ChartDataStatus(true, "使用最近真实日K缓存", true, IsCircuitOpen: cooldown.HasValue)
                 : new ChartDataStatus(false, cooldown.HasValue ? "腾讯日K接口熔断中，无可用DailyLike日K缓存" : "腾讯接口失败，无可用DailyLike日K缓存", IsCircuitOpen: cooldown.HasValue);
             _cache.SaveDailyKLines(
-                subscription.Security.StrategyCode,
-                existing?.Points ?? Array.Empty<KLinePoint>(),
+                security.StrategyCode,
+                existingRealDaily,
                 status,
                 now);
-            _runtimeLog?.Invoke("WARN", "SecurityChart", subscription.Security.StrategyCode + " 腾讯日K数据刷新失败：" + message);
+            _runtimeLog?.Invoke("WARN", "SecurityChart", security.StrategyCode + " 腾讯日K数据刷新失败：" + message);
         }
+
+        return true;
     }
 
-    private void TryPersistDailyHistoryPayload(
+    private void TryPersistMergedDailyHistory(
         ChartSecurityInfo security,
-        EastMoneyHistoryFetchResult result,
-        string source)
+        IReadOnlyList<KLinePoint> points,
+        string source,
+        DateOnly expectedCompletedTradingDate)
     {
-        if (_historyCacheSaver is null
-            || string.IsNullOrWhiteSpace(result.RawPayload)
-            || result.PointCount <= 0)
+        if (_historyCacheSaver is null || points.Count == 0)
         {
             return;
         }
 
         try
         {
+            string payload = DailyKLineFreshnessService.BuildMergedFormalPayload(
+                points,
+                source,
+                expectedCompletedTradingDate,
+                _nowProvider());
             _historyCacheSaver(
                 security.StrategyCode,
                 security.InstrumentType == ChartInstrumentType.Index ? "INDEX" : "ETF",
-                result.High,
-                result.RawPayload,
+                points.Max(point => point.High),
+                payload,
                 source);
         }
         catch (Exception ex)
@@ -1413,20 +1534,6 @@ public sealed class ChartDataRefreshCoordinator : IDisposable
         zone = null;
         return false;
     }
-
-    private static bool HasDailyHistory(ChartSecurityInfo security, IReadOnlyList<MarketQuoteRecord> history)
-    {
-        string marketType = security.InstrumentType == ChartInstrumentType.Index ? "INDEX" : "ETF";
-        return history
-            .Where(item => string.Equals(item.MarketType, marketType, StringComparison.OrdinalIgnoreCase)
-                           && (string.Equals(item.Symbol, security.ActualCode, StringComparison.OrdinalIgnoreCase)
-                               || string.Equals(item.Symbol, security.StrategyCode, StringComparison.OrdinalIgnoreCase)
-                               || string.Equals(item.RawCode, security.EastMoneySecId, StringComparison.OrdinalIgnoreCase)))
-            .Any(item => MarketHistoryQuality.IsDailyLike(item.RawPayload));
-    }
-
-    private bool HasDailyCache(string strategyCode)
-        => _cache.GetDailyKLines(strategyCode)?.Points.Count > 0;
 
     private MarketCircuitBreaker GetBreaker(string key)
     {
