@@ -654,17 +654,7 @@ public partial class MainWindow : Window
         }
 
         builder.Append("Q:");
-        foreach (MarketQuoteRecord quote in _marketQuotes.OrderBy(quote => quote.MarketType, StringComparer.Ordinal)
-                     .ThenBy(quote => quote.Symbol, StringComparer.OrdinalIgnoreCase)
-                     .ThenBy(quote => quote.Source, StringComparer.Ordinal))
-        {
-            builder.Append(quote.MarketType).Append(',')
-                .Append(quote.Symbol).Append(',')
-                .Append(quote.Source).Append(',')
-                .Append(quote.Price?.ToString("R", CultureInfo.InvariantCulture)).Append(',')
-                .Append(quote.LastClose?.ToString("R", CultureInfo.InvariantCulture)).Append(',')
-                .Append(quote.ReceivedAt).Append(';');
-        }
+        builder.Append(MarketQuoteFreshnessSelector.BuildReplayQuoteSignature(_marketQuotes, DateTime.Now));
 
         return builder.ToString();
     }
@@ -4031,11 +4021,7 @@ public partial class MainWindow : Window
             return null;
         }
 
-        return _marketQuotes
-            .Where(quote => string.Equals(quote.Symbol, symbol, StringComparison.OrdinalIgnoreCase)
-                            && (marketType is null || string.Equals(quote.MarketType, marketType, StringComparison.OrdinalIgnoreCase)))
-            .OrderByDescending(quote => quote.ReceivedAt, StringComparer.Ordinal)
-            .FirstOrDefault();
+        return MarketQuoteFreshnessSelector.SelectBest(_marketQuotes, symbol, marketType);
     }
 
     private StrategyDecisionStateRecord? FindStrategyDecision(string? strategyCode)

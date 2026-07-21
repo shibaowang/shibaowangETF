@@ -510,12 +510,15 @@ public sealed class AccountReplayService
 
     private static MarketQuoteRecord? FindQuote(IReadOnlyList<MarketQuoteRecord> quotes, string code, string marketType)
     {
-        string digits = DigitsOnly(code);
+        if (!string.Equals(marketType, "OTC", StringComparison.OrdinalIgnoreCase))
+        {
+            return MarketQuoteFreshnessSelector.SelectBest(quotes, code, marketType);
+        }
+
         return quotes
             .Where(quote => string.Equals(quote.MarketType, marketType, StringComparison.OrdinalIgnoreCase))
-            .Where(quote =>
-                CodeEquals(quote.Symbol, code, digits)
-                || CodeEquals(quote.RawCode, code, digits))
+            .Where(quote => MarketQuoteFreshnessSelector.MatchesCode(quote.Symbol, code)
+                            || MarketQuoteFreshnessSelector.MatchesCode(quote.RawCode, code))
             .OrderByDescending(quote => quote.ReceivedAt, StringComparer.Ordinal)
             .FirstOrDefault();
     }
@@ -590,22 +593,6 @@ public sealed class AccountReplayService
 
     private static bool IsFinitePositive(double value)
         => !double.IsNaN(value) && !double.IsInfinity(value) && value > 0;
-
-    private static bool CodeEquals(string? candidate, string code, string digits)
-    {
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return false;
-        }
-
-        string candidateDigits = DigitsOnly(candidate);
-        return string.Equals(candidate, code, StringComparison.OrdinalIgnoreCase)
-               || (!string.IsNullOrWhiteSpace(digits)
-                   && string.Equals(candidateDigits, digits, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string DigitsOnly(string value)
-        => new(value.Where(char.IsDigit).ToArray());
 
     private static void MarkFinancialError(
         AccountReplayResult result,

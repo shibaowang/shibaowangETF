@@ -7,7 +7,7 @@ namespace CrossETF.Terminal.UiShell.Reference.Tests.Release;
 
 public sealed class ReleasePackagingScriptFunctionTests
 {
-    private const string Version = "8.10.7";
+    private const string Version = "8.10.8";
     private const string DummyCommit = "0000000000000000000000000000000000000000";
 
     [Fact]
@@ -173,7 +173,7 @@ public sealed class ReleasePackagingScriptFunctionTests
             $"$result = Assert-PublishedPackage {Ps(fixture.Path)} {Ps(Version)} {Ps(fixture.Commit)}; " +
             "Write-Output \"$($result.FileVersion)|$($result.ProductVersion)|$($result.AssemblyName)|$($result.ExecutableSha256)|$($result.ManifestHash)\"");
 
-        Assert.Contains($"8.10.7.0|8.10.7+{fixture.Commit}|CrossETF.Terminal.UiShell.Reference", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"8.10.8.0|8.10.8+{fixture.Commit}|CrossETF.Terminal.UiShell.Reference", output, StringComparison.OrdinalIgnoreCase);
         Assert.Matches("[A-F0-9]{64}\\|[A-F0-9]{64}", output);
     }
 
@@ -640,7 +640,7 @@ public sealed class ReleasePackagingScriptFunctionTests
             FileVersionInfo versionInfo = FileVersionInfo.GetVersionInfo(applicationAssembly);
             Match match = Regex.Match(
                 versionInfo.ProductVersion ?? string.Empty,
-                "^8\\.10\\.7\\+([0-9a-fA-F]{40})$",
+                "^8\\.10\\.8\\+([0-9a-fA-F]{40})$",
                 RegexOptions.CultureInvariant);
             Assert.True(match.Success, $"Unexpected application ProductVersion: {versionInfo.ProductVersion}");
 

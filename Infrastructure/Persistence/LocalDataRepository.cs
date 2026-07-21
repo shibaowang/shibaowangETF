@@ -2970,6 +2970,12 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
 
     private static void SaveMarketQuote(SqliteConnection connection, SqliteTransaction transaction, MarketQuoteRecord record)
     {
+        MarketQuoteRecord? existing = ReadMarketQuoteByCacheKey(connection, transaction, record);
+        if (existing is not null && !MarketQuoteFreshnessSelector.ShouldReplaceCachedQuote(existing, record))
+        {
+            return;
+        }
+
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -3015,6 +3021,27 @@ public sealed partial class LocalDataRepository : IAlertDeliveryStore, IChartInt
         command.Parameters.AddWithValue("$raw_code", DbValue(record.RawCode));
         command.Parameters.AddWithValue("$raw_payload", DbValue(record.RawPayload));
         command.ExecuteNonQuery();
+    }
+
+    private static MarketQuoteRecord? ReadMarketQuoteByCacheKey(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        MarketQuoteRecord record)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT id, symbol, display_name, market_type, source, price, last_close, change_value, change_percent,
+                   high_value, low_value, open_value, volume, amount, iopv, quote_time, received_at, raw_code, raw_payload
+            FROM market_quote_cache
+            WHERE symbol = $symbol AND market_type = $market_type AND source = $source
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$symbol", record.Symbol);
+        command.Parameters.AddWithValue("$market_type", record.MarketType);
+        command.Parameters.AddWithValue("$source", record.Source);
+        using SqliteDataReader reader = command.ExecuteReader();
+        return reader.Read() ? ReadMarketQuote(reader) : null;
     }
 
     private void WriteMarketHistoryGuardLog(string level, string message, string detail)

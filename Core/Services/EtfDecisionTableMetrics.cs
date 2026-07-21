@@ -531,11 +531,8 @@ public static class EtfDecisionTableMetrics
             return FindOtcValuationQuote(actualCode, quotes);
         }
 
-        return quotes
-            .Where(quote => string.Equals(quote.MarketType, "ETF", StringComparison.OrdinalIgnoreCase)
-                            && (SameSymbol(quote.Symbol, actualCode) || SameSymbol(quote.Symbol, strategyCode)))
-            .OrderByDescending(quote => quote.ReceivedAt, StringComparer.Ordinal)
-            .FirstOrDefault();
+        return MarketQuoteFreshnessSelector.SelectBest(quotes, actualCode, "ETF")
+               ?? MarketQuoteFreshnessSelector.SelectBest(quotes, strategyCode, "ETF");
     }
 
     private static MarketQuoteRecord? FindOtcValuationQuote(string actualCode, IEnumerable<MarketQuoteRecord> quotes)
