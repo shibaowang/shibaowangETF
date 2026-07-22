@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [string]$Version = "8.10.5",
+    [string]$Version = "8.10.10",
     [Parameter(Mandatory = $true)][string]$SourcePath,
     [Parameter(Mandatory = $true)][string]$ExpectedCommit,
     [string]$OutputRoot = "D:\shibaowangETF\artifacts\installer",

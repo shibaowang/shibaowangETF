@@ -10,7 +10,7 @@ public sealed class InstallerPackagingScriptTests
 
     [Fact]
     public void InnoSetup_DefaultsToAcceptedApplicationVersion()
-        => Assert.Contains("#define MyAppVersion \"8.10.5\"", ReadInstallerScript(), StringComparison.Ordinal);
+        => Assert.Contains("#define MyAppVersion \"8.10.10\"", ReadInstallerScript(), StringComparison.Ordinal);
 
     [Fact]
     public void InnoSetup_UsesRequiredInstallerFileName()

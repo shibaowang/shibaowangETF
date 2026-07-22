@@ -1,5 +1,5 @@
 ﻿#ifndef MyAppVersion
-  #define MyAppVersion "8.10.5"
+  #define MyAppVersion "8.10.10"
 #endif
 #ifndef SourceDir
   #error SourceDir must be provided by Build-CrossEtfInstaller.ps1
